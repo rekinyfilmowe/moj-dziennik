@@ -1,4 +1,5 @@
-import { createServerClient } from "@/lib/supabase-server";
+import { createServerClient } from "../../lib/supabase-server";
+
 
 export default async function AppHome() {
   const supabase = createServerClient();
