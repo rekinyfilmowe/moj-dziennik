@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createServerClient } from "../../lib/supabase-server"; // Uwaga: ścieżka względna!
+import { createServerClient } from "../../../lib/supabase-server";
 
 export default async function StudentsPage() {
   const supabase = createServerClient();
