@@ -53,12 +53,24 @@ export default async function DashboardPage() {
         <div>
           <h2 className="font-semibold mb-2">Dzisiejsze lekcje</h2>
           <Table
-            rows={lekcje?.map(l => ({
-              title: `${l.przedmiot?.nazwa} — ${l.temat || 'Brak tematu'}`,
-              date: l.data_lekcji,
-              tag: `Obecni: ${l.frekwencja_counts?.obecni || 0}`
-            })) || []}
-          />
+  rows={lekcje?.map(l => {
+    // obsługa przypadku: przedmiot to tablica lub obiekt
+    let przedmiotNazwa: string | null = null;
+
+    if (Array.isArray(l.przedmiot)) {
+      przedmiotNazwa = l.przedmiot[0]?.nazwa ?? null;
+    } else {
+      przedmiotNazwa = l.przedmiot?.nazwa ?? null;
+    }
+
+    return {
+      title: `${przedmiotNazwa || '—'} — ${l.temat || 'Brak tematu'}`,
+      date: l.data_lekcji,
+      tag: `Obecni: ${l.frekwencja_counts?.obecni || 0}`
+    };
+  }) || []}
+/>
+
         </div>
 
         {/* Ostatnie oceny */}
