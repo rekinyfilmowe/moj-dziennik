@@ -47,172 +47,127 @@ export async function getClassesAction() {
   }));
 }
 
-export async function getSubjectsForDateAction(params: { date: string; classId: string }): Promise<SubjectOption[]> {
-  const s = createServerClient();
+export async function getSubjectsForDateAction(params: {
+  classId: string;   // uuid jako string!
+  dateISO: string;   // "YYYY-MM-DD"
+}) {
+  const supabase = createClient();
 
-  // Parsuj YYYY-MM-DD w UTC, bez przesunięć strefy
-  const [Y, M, D] = params.date.split("-").map(Number);
-  const dateUtc = new Date(Date.UTC(Y, M - 1, D));
-  const jsDow = dateUtc.getUTCDay(); // 0..6
-  const dow = jsDow === 0 ? 7 : jsDow; // pn=1..nd=7
+  // DOW: 1=pn ... 7=nd (taki masz w DB)
+  const dt = new Date(params.dateISO + "T00:00:00Z");
+  const jsDow = dt.getUTCDay();         // 0..6 (nd=0)
+  const dow = jsDow === 0 ? 7 : jsDow;  // 1..7
 
-  // 1) Plan (snake_case). UWAGA: rzutuj classId tylko jeśli kolumna jest INT.
-  const { data: plans, error: plansErr } = await s
+  // 1) plan dla klasy (uuid, bez Number())
+  const { data: plans, error: planErr } = await supabase
     .from("plan_lekcji")
-    .select("id, od, do, id_klasa")
-    .eq("id_klasa", Number(params.classId));
+    .select("id, id_klasa, data_od, data_do")
+    .eq("id_klasa", params.classId)
+    .lte("data_od", params.dateISO)
+    .gte("data_do", params.dateISO);
 
-  if (plansErr) {
-    console.error("[getSubjectsForDateAction] plan_lekcji error:", plansErr);
-    return [];
-  }
+  if (planErr) throw planErr;
+  if (!plans || plans.length === 0) return [];
 
-  const plan = (plans ?? []).find((p: any) => {
-    const od = new Date(p.od);
-    const do_ = new Date(p.do);
-    return od <= dateUtc && do_ >= dateUtc;
-  });
+  const plan = plans[0];
 
-  if (!plan) {
-    console.warn("[getSubjectsForDateAction] brak planu dla klasy / zakresu dat", {
-      classId: params.classId, date: params.date, plansCount: plans?.length ?? 0
-    });
-    return [];
-  }
-
-  // 2) Wpisy dnia (snake_case + UUID)
-  const { data: entries, error: entriesErr } = await s
+  // 2) wpisy w danym dniu (id_plan = uuid, dzien_tygodnia = 1..7)
+  const { data: entries, error: entriesErr } = await supabase
     .from("plan_lekcji_wpisy")
-    .select("id, id_plan, dzien_tygodnia, numer_lekcji, id_przedmiot")
+    .select("id, id_przedmiot, numer_lekcji")
     .eq("id_plan", plan.id)
     .eq("dzien_tygodnia", dow)
     .order("numer_lekcji", { ascending: true });
 
-  if (entriesErr) {
-    console.error("[getSubjectsForDateAction] wpisy error:", entriesErr);
-    return [];
-  }
-  if (!entries?.length) {
-    console.warn("[getSubjectsForDateAction] brak wpisów w danym dniu", { dow, planId: plan.id });
-    return [];
-  }
+  if (entriesErr) throw entriesErr;
+  if (!entries || entries.length === 0) return [];
 
-  // 3) Przedmioty
-  const subjectIds = entries.map((e: any) => e.id_przedmiot).filter(Boolean);
-  if (!subjectIds.length) {
-    console.warn("[getSubjectsForDateAction] wpisy bez id_przedmiot");
-    return [];
-  }
-
-  const { data: subjects, error: subjErr } = await s
-    .from("przedmioty")
+  // 3) (opcjonalnie) dociągamy nazwy przedmiotów przez IN(uuid)
+  const subjectIds = [...new Set(entries.map(e => e.id_przedmiot))];
+  const { data: subjectsDict, error: subjErr } = await supabase
+    .from("przedmioty") // <- potwierdź nazwę tabeli z przedmiotami
     .select("id, nazwa")
     .in("id", subjectIds);
 
-  if (subjErr) {
-    console.error("[getSubjectsForDateAction] przedmioty error:", subjErr);
-    return [];
-  }
+  if (subjErr) throw subjErr;
 
-  const byId = new Map((subjects ?? []).map((p: any) => [p.id, p.nazwa as string]));
+  const nameById = new Map(subjectsDict?.map(s => [s.id, s.nazwa]) ?? []);
 
-  return entries.map((e: any) => ({
-    value: String(e.id),
-    subjectId: String(e.id_przedmiot),
-    label: `${byId.get(e.id_przedmiot) ?? "Lekcja"} – lekcja ${e.numer_lekcji}`,
+  return entries.map(e => ({
+    planEntryId: e.id,                 // uuid
+    subjectId: e.id_przedmiot,         // uuid
+    subjectName: nameById.get(e.id_przedmiot) ?? "(bez nazwy)",
+    lessonNo: e.numer_lekcji,
   }));
 }
 
 
 
-export async function checkExistingLessonAction(params: { date: string; classId: string; planEntryId: string; }) {
-  const s = createServerClient();
+export async function checkExistingLessonAction(
+  params: CheckLessonParams
+): Promise<{ exists: boolean; lessonId?: string }> {
+  const supabase = createClient();
+  const dateISO = toIsoDateOnly(params.dateISO);
 
-  // 1) pobierz wpis planu (żeby znać id_przedmiot)
-const { data: entry } = await s
-  .from("plan_lekcji_wpisy")            // było: planLekcji_wpisy
-  .select("id_przedmiot")               // było: idPrzedmiot
-  .eq("id", params.planEntryId)         // UUID -> bez asNum
-  .single();
-
-const subjectId = entry?.id_przedmiot ? String(entry.id_przedmiot) : null;
-
-
-  // 2) czy istnieje lekcja?
-  const { data: lessons } = await s
+  const { data, error } = await supabase
     .from("lekcje")
-    .select("_id, temat, obecni, spoznieni, nieobecni, usprawiedliwieni, zwolnieni")
-    .eq("dataLekcji", toYMD(params.date))
-    .eq("idKlasa", asNum(params.classId))
-    .eq("idWpisPlanu", asNum(params.planEntryId))
+    .select("id")
+    .eq("idWpisPlanu", params.planEntryId) // uuid, bez Number()
+    .eq("data", dateISO)
     .limit(1);
 
-  const lesson = lessons?.[0];
-  let summaryText: string | undefined;
-  if (lesson?.obecni != null) {
-    summaryText = `Obecni: ${lesson.obecni} | Spóźnieni: ${lesson.spoznieni} | Nieobecni: ${lesson.nieobecni} | Usprawiedliwieni: ${lesson.usprawiedliwieni} | Zwolnieni: ${lesson.zwolnieni}`;
-  }
+  if (error) throw error;
 
-  return {
-    subjectId,
-    lessonId: lesson?._id ? String(lesson._id) : null,
-    lessonTopic: lesson?.temat ?? "",
-    summaryText,
-  };
+  const row = data && data[0];
+  return { exists: !!row, lessonId: row?.id };
 }
 
-export async function saveLessonAction(params: {
-  date: string; classId: string; planEntryId: string; topic: string;
-}) {
-  const s = createServerClient();
+/** Zapisuje lekcję dla wybranego wpisu planu */
+export async function saveLessonAction(
+  params: SaveLessonParams
+): Promise<{ ok: true; lessonId: string } | { ok: false; reason: string }> {
+  const supabase = createClient();
+  const dateISO = toIsoDateOnly(params.dateISO);
 
-  // 1) pobierz wpis planu -> idPrzedmiotu
-  const { data: entry, error: e1 } = await s
-    .from("planLekcji_wpisy")
-    .select("idPrzedmiot")
-    .eq("_id", asNum(params.planEntryId))
-    .single();
-  if (e1) return { error: "❌ Nie udało się pobrać wpisu planu." };
-
-  const subjectIdNum = Number(entry!.idPrzedmiot);
-  const subjectIdStr = String(entry!.idPrzedmiot);
-
-  // 2) sprawdź czy istnieje lekcja
-  const { data: existing } = await s
-    .from("lekcje")
-    .select("_id, temat")
-    .eq("dataLekcji", params.date)
-    .eq("idKlasa", asNum(params.classId))
-    .eq("idWpisPlanu", asNum(params.planEntryId))
-    .limit(1);
-
-  if (existing?.length) {
-    // update tylko tematu (i zostawiamy frekwencje)
-    const { error } = await s.from("lekcje").update({ temat: params.topic }).eq("_id", existing[0]._id);
-    if (error) return { error: "❌ Błąd aktualizacji lekcji." };
-    return {
-      lessonId: String(existing[0]._id),
-      subjectId: subjectIdStr, // do UI zwracamy string
-      message: "Zaktualizowano lekcję.",
-    };
+  // 0) Idempotencja – jeśli już istnieje, nie duplikujemy
+  const exists = await checkExistingLessonAction({
+    planEntryId: params.planEntryId,
+    dateISO,
+  });
+  if (exists.exists && exists.lessonId) {
+    return { ok: true, lessonId: exists.lessonId };
   }
 
-  // 3) insert
-  const { data: inserted, error } = await s
-    .from("lekcje")
-    .insert({
-      dataLekcji: params.date,
-      idKlasa: asNum(params.classId),
-      idPrzedmiot: subjectIdNum,
-      temat: params.topic,
-      idWpisPlanu: asNum(params.planEntryId),
-    })
-    .select("_id")
+  // 1) Pobierz id_przedmiot z wpisu planu (uuid)
+  const { data: entry, error: entryErr } = await supabase
+    .from("plan_lekcji_wpisy")
+    .select("id_przedmiot")
+    .eq("id", params.planEntryId) // uuid
     .single();
 
-  if (error) return { error: "❌ Błąd zapisu lekcji." };
+  if (entryErr) return { ok: false, reason: entryErr.message };
+  const subjectId: string = entry!.id_przedmiot;
 
-  return { lessonId: String(inserted!._id), subjectId: subjectIdStr, message: "Zapisano lekcję!" };
+  // 2) Insert do lekcje (wszystko jako uuid/stringi, bez Number())
+  const insertPayload: Record<string, any> = {
+    idWpisPlanu: params.planEntryId,
+    idKlasa: params.classId,
+    data: dateISO,
+    notatki: params.notes ?? null,
+  };
+
+  // Jeśli masz kolumnę idPrzedmiot w lekcje — ustaw ją:
+  if (subjectId) insertPayload.idPrzedmiot = subjectId;
+
+  const { data: ins, error: insErr } = await supabase
+    .from("lekcje")
+    .insert(insertPayload)
+    .select("id")
+    .single();
+
+  if (insErr) return { ok: false, reason: insErr.message };
+
+  return { ok: true, lessonId: ins!.id as string };
 }
 
 export async function loadStudentsWithDataAction(params: {
