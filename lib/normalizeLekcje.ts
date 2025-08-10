@@ -21,8 +21,8 @@ export type LekcjaRow = {
   data_lekcji: string | null;
   temat: string | null;
   numer: number | null;
-  przedmiot: string | null; // pojedyncza nazwa
-  klasa: string | null;     // pojedyncza nazwa
+  przedmiot: string | null;
+  klasa: string | null;
   frekwencja_counts: {
     obecni: number | null;
     nieobecni: number | null;
