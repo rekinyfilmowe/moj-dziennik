@@ -1,36 +1,23 @@
 // lib/supabase-server.ts
-import { cookies } from 'next/headers'
-import { createServerClient as createSupabaseServerClient } from '@supabase/ssr'
+import { cookies } from "next/headers";
+import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 
 export function createServerClient() {
-  const cookieStore = cookies()
-
-  return createSupabaseServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        get(name: string) {
-          return cookieStore.get(name)?.value
-        },
-        // Na serwerze (SSR) zazwyczaj nie ustawiamy/nie usuwamy ciastek — ale metody muszą istnieć
-        set() {},
-        remove() {},
-      },
-    }
-  )
+  // Używamy tych samych helperów co middleware i /auth/callback,
+  // dzięki czemu SSR dostaje tę samą sesję (ciasteczka).
+  return createServerComponentClient({ cookies });
 }
 
 export async function getCurrentUserWithRole() {
-  const supabase = createServerClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
+  const supabase = createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
 
   const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, full_name')
-    .eq('id', user.id)
-    .single()
+    .from("profiles")
+    .select("role, full_name")
+    .eq("id", user.id)
+    .single();
 
-  return { user, role: profile?.role ?? 'uczen', full_name: profile?.full_name ?? null }
+  return { user, role: profile?.role ?? "uczen", full_name: profile?.full_name ?? null };
 }
