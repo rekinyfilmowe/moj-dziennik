@@ -7,7 +7,7 @@ export async function middleware(req: NextRequest) {
   const supabase = createMiddlewareClient({ req, res });
   const { data: { user } } = await supabase.auth.getUser();
 
-  const isAppPath = req.nextUrl.pathname.startsWith("/app");
+  const isAppPath = req.nextUrl.pathname.startsWith("/dashboard");
   const isLoginPath = req.nextUrl.pathname.startsWith("/login");
 
   if (!user && isAppPath) {
