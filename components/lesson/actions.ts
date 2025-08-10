@@ -50,11 +50,11 @@ export async function getClassesAction() {
 export async function getSubjectsForDateAction(params: { date: string; classId: string }): Promise<SubjectOption[]> {
   const s = createServerClient();
 
-  // 1) znajdź plan dla klasy i daty
+  // [A] Plan dla klasy i daty — jeśli Twoja tabela to 'plan_lekcji' (snake_case), użyj jej
   const { data: plans, error: plansErr } = await s
-    .from("planLekcji")
-    .select("_id, od, do, idKlasa")
-    .eq("idKlasa", asNum(params.classId));
+    .from("plan_lekcji") // było: planLekcji
+    .select("id, od, do, id_klasa") // było: _id, od, do, idKlasa
+    .eq("id_klasa", asNum(params.classId)); // rzutuj TYLKO jeśli klasy.id jest int
 
   if (plansErr) {
     console.error("Błąd pobierania planów:", plansErr);
@@ -65,42 +65,48 @@ export async function getSubjectsForDateAction(params: { date: string; classId: 
   const plan = (plans ?? []).find((p: any) => new Date(p.od) <= date && new Date(p.do) >= date);
   if (!plan) return [];
 
-  // 2) ustal dzień tygodnia: pn=1 ... nd=7
+  // pn=1 ... nd=7
   const dow = (() => { const d = date.getDay(); return d === 0 ? 7 : d; })();
 
-  // 3) pobierz wpisy z danego dnia
+  // [B] Wpisy dnia – snake_case + bez rzutowania UUID
   const { data: entries, error: entriesErr } = await s
-    .from("planLekcji_wpisy")
-    .select("_id, idPlan, dzienTygodnia, numerLekcji, idPrzedmiot")
-    .eq("idPlan", plan._id)
-    .eq("dzienTygodnia", dow)
-    .order("numerLekcji", { ascending: true });
+    .from("plan_lekcji_wpisy") // było: planLekcji_wpisy
+    .select("id, id_plan, dzien_tygodnia, numer_lekcji, id_przedmiot") // było: _id, idPlan, dzienTygodnia, numerLekcji, idPrzedmiot
+    .eq("id_plan", plan.id)
+    .eq("dzien_tygodnia", dow)
+    .order("numer_lekcji", { ascending: true });
 
   if (entriesErr || !entries?.length) return [];
 
-  // 4) zmapuj do label/value (dociągamy nazwy przedmiotów)
-  const ids = entries.map((e: any) => e.idPrzedmiot).filter(Boolean);
-  const { data: subjects } = await s.from("Przedmioty").select("_id,nazwa").in("_id", ids);
+  // [C] Przedmioty – snake_case, kolumna 'id'
+  const subjectIds = entries.map((e: any) => e.id_przedmiot).filter(Boolean);
+  const { data: subjects } = await s
+    .from("przedmioty") // było: Przedmioty
+    .select("id, nazwa")
+    .in("id", subjectIds);
 
-  const byId = new Map((subjects ?? []).map((p: any) => [p._id, p.nazwa as string]));
+  const byId = new Map((subjects ?? []).map((p: any) => [p.id, p.nazwa as string]));
+
   return entries.map((e: any) => ({
-    value: String(e._id),             // id wpisu planu -> string do UI
-    subjectId: String(e.idPrzedmiot), // id przedmiotu -> string do UI
-    label: `${byId.get(e.idPrzedmiot) ?? "Lekcja"} – lekcja ${e.numerLekcji}`,
+    value: String(e.id),                 // id wpisu planu -> string do UI
+    subjectId: String(e.id_przedmiot),   // id przedmiotu -> string do UI
+    label: `${byId.get(e.id_przedmiot) ?? "Lekcja"} – lekcja ${e.numer_lekcji}`,
   }));
 }
+
 
 export async function checkExistingLessonAction(params: { date: string; classId: string; planEntryId: string; }) {
   const s = createServerClient();
 
-  // 1) pobierz wpis planu (żeby znać idPrzedmiotu)
-  const { data: entry } = await s
-    .from("planLekcji_wpisy")
-    .select("idPrzedmiot")
-    .eq("_id", asNum(params.planEntryId))
-    .single();
+  // 1) pobierz wpis planu (żeby znać id_przedmiot)
+const { data: entry } = await s
+  .from("plan_lekcji_wpisy")            // było: planLekcji_wpisy
+  .select("id_przedmiot")               // było: idPrzedmiot
+  .eq("id", params.planEntryId)         // UUID -> bez asNum
+  .single();
 
-  const subjectId = entry?.idPrzedmiot ? String(entry.idPrzedmiot) : null;
+const subjectId = entry?.id_przedmiot ? String(entry.id_przedmiot) : null;
+
 
   // 2) czy istnieje lekcja?
   const { data: lessons } = await s
