@@ -6,10 +6,8 @@ import { useState } from 'react';
 import { cn } from '@/lib/utils'; // jeśli nie masz, zamień na prostą konkatenację klas
 
 const NAV = [
-  { href: '/dashboard', label: 'Przegląd' },
-  { href: '/dashboard/zadania', label: 'Zadania' },
-  { href: '/dashboard/notatki', label: 'Notatki' },
-  { href: '/dashboard/raporty', label: 'Raporty' },
+  { href: '/dashboard', label: 'Pulpit' },
+  { href: '/dashboard/lessons', label: 'Lekcja' },
 ];
 
 export default function Sidebar() {
