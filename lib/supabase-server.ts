@@ -1,47 +1,43 @@
 // lib/supabase-server.ts
-import { cookies } from "next/headers";
-import { createServerClient as createClient } from "@supabase/ssr";
+import { cookies } from 'next/headers'
+import { createServerClient as createSupabaseServerClient } from '@supabase/ssr'
+import { Database } from './database.types'
 
 export function createServerClient() {
-  const cookieStore = cookies();
+  const cookieStore = cookies()
 
-  return createClient(
+  return createSupabaseServerClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookies: {
         get(name: string) {
-          return cookieStore.get(name)?.value;
+          return cookieStore.get(name)?.value
         },
-        set(name: string, value: string, options: any) {
-          try {
-            cookieStore.set({ name, value, ...options });
-          } catch {
-            // Ignoruj w środowisku tylko-do-odczytu (SSR)
-          }
+        set() {
+          // SSR: nie ustawiamy ciastek po stronie serwera
         },
-        remove(name: string, options: any) {
-          try {
-            cookieStore.set({ name, value: "", ...options });
-          } catch {
-            // Ignoruj w środowisku tylko-do-odczytu (SSR)
-          }
-        }
-      }
+        remove() {
+          // SSR: nie usuwamy ciastek po stronie serwera
+        },
+      },
     }
-  );
+  )
 }
 
 export async function getCurrentUserWithRole() {
-  const supabase = createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  const supabase = createServerClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
+  if (!user) return null
 
   const { data: profile } = await supabase
-    .from("profiles")
-    .select("role, full_name")
-    .eq("id", user.id)
-    .single();
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
 
-  return { user, role: profile?.role ?? "uczen", full_name: profile?.full_name ?? null };
+  return { user, role: profile?.role || null }
 }
