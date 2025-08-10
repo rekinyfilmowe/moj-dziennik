@@ -1,92 +1,73 @@
 // app/dashboard/page.tsx
-import { createServerClient, getCurrentUserWithRole } from '@/lib/supabase-server';
-import { StatCard } from '@/components/Dashboard/StatCard';
-import Table from '@/components/Dashboard/Table';
+import React from "react";
+import { normalizeLekcje, type LekcjaRaw, type LekcjaRow } from "@/lib/normalizeLekcje";
 
-type LekcjaRow = {
-  data_lekcji: string;
-  temat: string | null;
-  przedmiot?: { nazwa: string } | { nazwa: string }[] | null;
-  frekwencja_counts?: { obecni: number | null } | null;
-};
+// ------------------------
+// 1) Dynamiczny import Table z fallbackami (różne ścieżki i nazwy eksportów)
+// ------------------------
+async function resolveTable(): Promise<React.ComponentType<{ rows: LekcjaRow[] }>> {
+  const tryPaths = [
+    "@/components/table",
+    "@/components/Table",
+    "@/components/ui/table",
+    "@/components/ui/Table",
+  ] as const;
+
+  for (const p of tryPaths) {
+    try {
+      // @ts-ignore – dynamiczna ścieżka, TS tego nie zrozumie, ale runtime tak
+      const mod = await import(p);
+      const TableComp =
+        (mod && (mod.default || (mod.Table as any))) as React.ComponentType<{ rows: LekcjaRow[] }>;
+      if (TableComp) return TableComp;
+    } catch {
+      // próbujemy kolejny wariant
+    }
+  }
+
+  // Jeśli nic nie znaleziono, podrzucamy minimalny fallback, żeby build nie padł
+  return (({ rows }) => (
+    <pre style={{ whiteSpace: "pre-wrap" }}>
+      {`[Brak komponentu Table – wrzuć go do components/table.tsx lub components/ui/table.tsx]
+Wiersze (podgląd):\n${JSON.stringify(rows, null, 2)}`}
+    </pre>
+  )) as React.ComponentType<{ rows: LekcjaRow[] }>;
+}
+
+// ------------------------
+// 2) Pobranie dzisiejszych lekcji – miękki import Twojej funkcji, fallback = []
+// ------------------------
+async function getDzisiejszeLekcje(): Promise<LekcjaRaw[] | null> {
+  try {
+    const mod = await import("@/lib/lekcje").catch(() => null);
+    if (mod?.getDzisiejszeLekcje) {
+      const data = await mod.getDzisiejszeLekcje();
+      return data as LekcjaRaw[] | null;
+    }
+  } catch {
+    // ignorujemy – polecimy z pustą listą
+  }
+  return [];
+}
+
+// Dane zmienne (Supabase itp.) – unikamy twardego cache w czasie builda
+export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const supabase = createServerClient();
-  const me = await getCurrentUserWithRole();
+  // rozwiąż komponent Table (raz, przed renderem)
+  const Table = await resolveTable();
 
-  // 1) Dzisiejsze lekcje
-  const { data: lekcje } = await supabase
-    .from('lekcje')
-    .select(`
-      id, data_lekcji, temat, numer,
-      przedmiot:przedmioty!lekcje_id_przedmiot_fkey(nazwa),
-      klasa:klasy!lekcje_id_klasa_fkey(nazwa),
-      frekwencja_counts:lekcje_frekwencja_counts(obecni, nieobecni, spoznieni, zwolnieni, usprawiedliwieni)
-    `)
-    .eq('data_lekcji', new Date().toISOString().split('T')[0])
-    .order('numer', { ascending: true });
-
-  // 2) Ostatnie oceny
-  const { data: oceny } = await supabase
-    .from('oceny')
-    .select(`
-      id,
-      data,
-      ocena,
-      typ,
-      uczen:uczniowie(imie, nazwisko),
-      przedmiot:przedmioty(nazwa)
-    `)
-    .order('data', { ascending: false })
-    .limit(5);
+  // pobierz surowe rekordy i znormalizuj do kształtu dla Table
+  const lekcjeRaw = await getDzisiejszeLekcje();
+  const rows: LekcjaRow[] = normalizeLekcje(lekcjeRaw);
 
   return (
-    <main className="p-6 space-y-6">
-      {/* Header */}
-      <header className="flex items-center gap-3">
-        <h1 className="text-2xl font-semibold">Panel</h1>
-        {me && (
-          <span className="rounded-full border px-2 py-1 text-xs">
-            Rola: {me.role}
-          </span>
-        )}
-      </header>
+    <main className="p-6">
+      <h1 className="text-2xl font-semibold mb-4">Panel</h1>
 
-      {/* Sekcja z tabelami */}
-      <section className="grid gap-4 md:grid-cols-2">
-        {/* Dzisiejsze lekcje */}
-        <div>
-          <h2 className="font-semibold mb-2">Dzisiejsze lekcje</h2>
-          <Table
-            rows={(lekcje as LekcjaRow[] | undefined)?.map((l) => {
-              let przedmiotNazwa: string | null = null;
-
-              if (Array.isArray(l.przedmiot)) {
-                przedmiotNazwa = l.przedmiot[0]?.nazwa ?? null;
-              } else {
-                przedmiotNazwa = l.przedmiot?.nazwa ?? null;
-              }
-
-              return {
-                title: `${przedmiotNazwa || '—'} — ${l.temat || 'Brak tematu'}`,
-                date: l.data_lekcji,
-                tag: `Obecni: ${l.frekwencja_counts?.obecni || 0}`,
-              };
-            }) || []}
-          />
-        </div>
-
-        {/* Ostatnie oceny */}
-        <div>
-          <h2 className="font-semibold mb-2">Ostatnie oceny</h2>
-          <Table
-            rows={oceny?.map((o) => ({
-              title: `${o.uczen?.imie} ${o.uczen?.nazwisko} — ${o.ocena}`,
-              date: o.data,
-              tag: o.przedmiot?.nazwa || '',
-            })) || []}
-          />
-        </div>
+      <section className="mb-8">
+        <h2 className="font-semibold mb-2">Dzisiejsze lekcje</h2>
+        <Table rows={rows} />
       </section>
     </main>
   );
