@@ -1,11 +1,6 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-
-/* Używaj tylko takich komentarzy */
-:root {
-  --radius: 12px;
-}
-
+:root { --radius: 12px; }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
