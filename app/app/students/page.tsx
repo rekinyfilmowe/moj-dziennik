@@ -1,36 +1,55 @@
+// app/app/students/page.tsx
 import Link from "next/link";
-import { createServerClient } from "../../../lib/supabase-server";
+import { createServerClient, getCurrentUserWithRole } from "../../../lib/supabase-server";
+import { revalidatePath } from "next/cache";
 
 export default async function StudentsPage() {
   const supabase = createServerClient();
+  const me = await getCurrentUserWithRole(); // { user, role }
+
   const { data: students, error } = await supabase
     .from("students")
-    .select("id, first_name, last_name")
+    .select("id, first_name, last_name, created_by")
     .order("id", { ascending: false });
 
-  if (error) {
-    // przy RLS bez created_by zwróci błąd
-    console.error(error);
+  async function onDelete(id: number) {
+    "use server";
+    const s = createServerClient();
+    await s.from("students").delete().eq("id", id);
+    revalidatePath("/app/students");
   }
 
   return (
-    <main className="p-6">
-      <header className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">Uczniowie</h1>
-        <Link href="/app/students/new" className="rounded-md border px-3 py-2 hover:bg-gray-50">
-          + Dodaj ucznia
-        </Link>
+    <main className="p-6 max-w-2xl space-y-4">
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Uczniowie</h1>
+        <Link href="/app/students/new" className="border rounded px-3 py-2">+ Nowy</Link>
       </header>
 
+      {error && <p className="text-red-600">{error.message}</p>}
+
       {!students?.length ? (
-        <p className="text-gray-600">Brak uczniów. Dodaj pierwszego 🙂</p>
+        <p>Brak uczniów.</p>
       ) : (
-        <ul className="divide-y rounded-lg border bg-white">
-          {students.map((s) => (
-            <li key={s.id} className="p-3 flex items-center justify-between">
-              <span>{s.first_name} {s.last_name}</span>
-            </li>
-          ))}
+        <ul className="divide-y rounded border bg-white">
+          {students.map((s) => {
+            const canEdit =
+              me?.role === "nauczyciel" || me?.role === "admin" || me?.user?.id === s.created_by;
+
+            return (
+              <li key={s.id} className="p-3 flex items-center justify-between gap-3">
+                <span>{s.first_name} {s.last_name}</span>
+                {canEdit && (
+                  <div className="flex items-center gap-2">
+                    <Link href={`/app/students/${s.id}/edit`} className="text-sm underline">Edytuj</Link>
+                    <form action={async () => { "use server"; await onDelete(s.id); }}>
+                      <button className="text-sm text-red-600 underline">Usuń</button>
+                    </form>
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </main>
