@@ -50,49 +50,79 @@ export async function getClassesAction() {
 export async function getSubjectsForDateAction(params: { date: string; classId: string }): Promise<SubjectOption[]> {
   const s = createServerClient();
 
-  // [A] Plan dla klasy i daty — jeśli Twoja tabela to 'plan_lekcji' (snake_case), użyj jej
+  // Parsuj YYYY-MM-DD w UTC, bez przesunięć strefy
+  const [Y, M, D] = params.date.split("-").map(Number);
+  const dateUtc = new Date(Date.UTC(Y, M - 1, D));
+  const jsDow = dateUtc.getUTCDay(); // 0..6
+  const dow = jsDow === 0 ? 7 : jsDow; // pn=1..nd=7
+
+  // 1) Plan (snake_case). UWAGA: rzutuj classId tylko jeśli kolumna jest INT.
   const { data: plans, error: plansErr } = await s
-    .from("plan_lekcji") // było: planLekcji
-    .select("id, od, do, id_klasa") // było: _id, od, do, idKlasa
-    .eq("id_klasa", asNum(params.classId)); // rzutuj TYLKO jeśli klasy.id jest int
+    .from("plan_lekcji")
+    .select("id, od, do, id_klasa")
+    .eq("id_klasa", Number(params.classId));
 
   if (plansErr) {
-    console.error("Błąd pobierania planów:", plansErr);
+    console.error("[getSubjectsForDateAction] plan_lekcji error:", plansErr);
     return [];
   }
 
-  const date = new Date(params.date);
-  const plan = (plans ?? []).find((p: any) => new Date(p.od) <= date && new Date(p.do) >= date);
-  if (!plan) return [];
+  const plan = (plans ?? []).find((p: any) => {
+    const od = new Date(p.od);
+    const do_ = new Date(p.do);
+    return od <= dateUtc && do_ >= dateUtc;
+  });
 
-  // pn=1 ... nd=7
-  const dow = (() => { const d = date.getDay(); return d === 0 ? 7 : d; })();
+  if (!plan) {
+    console.warn("[getSubjectsForDateAction] brak planu dla klasy / zakresu dat", {
+      classId: params.classId, date: params.date, plansCount: plans?.length ?? 0
+    });
+    return [];
+  }
 
-  // [B] Wpisy dnia – snake_case + bez rzutowania UUID
+  // 2) Wpisy dnia (snake_case + UUID)
   const { data: entries, error: entriesErr } = await s
-    .from("plan_lekcji_wpisy") // było: planLekcji_wpisy
-    .select("id, id_plan, dzien_tygodnia, numer_lekcji, id_przedmiot") // było: _id, idPlan, dzienTygodnia, numerLekcji, idPrzedmiot
+    .from("plan_lekcji_wpisy")
+    .select("id, id_plan, dzien_tygodnia, numer_lekcji, id_przedmiot")
     .eq("id_plan", plan.id)
     .eq("dzien_tygodnia", dow)
     .order("numer_lekcji", { ascending: true });
 
-  if (entriesErr || !entries?.length) return [];
+  if (entriesErr) {
+    console.error("[getSubjectsForDateAction] wpisy error:", entriesErr);
+    return [];
+  }
+  if (!entries?.length) {
+    console.warn("[getSubjectsForDateAction] brak wpisów w danym dniu", { dow, planId: plan.id });
+    return [];
+  }
 
-  // [C] Przedmioty – snake_case, kolumna 'id'
+  // 3) Przedmioty
   const subjectIds = entries.map((e: any) => e.id_przedmiot).filter(Boolean);
-  const { data: subjects } = await s
-    .from("przedmioty") // było: Przedmioty
+  if (!subjectIds.length) {
+    console.warn("[getSubjectsForDateAction] wpisy bez id_przedmiot");
+    return [];
+  }
+
+  const { data: subjects, error: subjErr } = await s
+    .from("przedmioty")
     .select("id, nazwa")
     .in("id", subjectIds);
+
+  if (subjErr) {
+    console.error("[getSubjectsForDateAction] przedmioty error:", subjErr);
+    return [];
+  }
 
   const byId = new Map((subjects ?? []).map((p: any) => [p.id, p.nazwa as string]));
 
   return entries.map((e: any) => ({
-    value: String(e.id),                 // id wpisu planu -> string do UI
-    subjectId: String(e.id_przedmiot),   // id przedmiotu -> string do UI
+    value: String(e.id),
+    subjectId: String(e.id_przedmiot),
     label: `${byId.get(e.id_przedmiot) ?? "Lekcja"} – lekcja ${e.numer_lekcji}`,
   }));
 }
+
 
 
 export async function checkExistingLessonAction(params: { date: string; classId: string; planEntryId: string; }) {
