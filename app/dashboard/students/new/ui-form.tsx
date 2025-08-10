@@ -10,12 +10,12 @@ export default function NewStudentForm() {
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const res = await fetch("/app/students/new/action", {
+    const res = await fetch("/dashboard/students/new/action", {
       method: "POST",
       body: JSON.stringify({ firstName, lastName }),
     });
     if (res.ok) {
-      startTransition(() => router.push("/app/students"));
+      startTransition(() => router.push("/dashboard/students"));
     } else {
       const msg = await res.text();
       alert(msg || "Ups, nie udało się zapisać.");
