@@ -19,11 +19,11 @@ export async function middleware(req: NextRequest) {
 
   if (user && isLoginPath) {
     const url = req.nextUrl.clone();
-    url.pathname = "/app";
+    url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 
   return res;
 }
 
-export const config = { matcher: ["/app/:path*", "/login"] };
+export const config = { matcher: ["/dashboard/:path*", "/login"] };
