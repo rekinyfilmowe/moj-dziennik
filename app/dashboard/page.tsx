@@ -9,20 +9,17 @@ export default async function DashboardPage() {
   const me = await getCurrentUserWithRole();
 
   // 1) Dzisiejsze lekcje z licznikami frekwencji
-  const { data: lekcje } = await supabase
-    .from('lekcje')
-    .select(`
-      id,
-      data_lekcji,
-      temat,
-      przedmiot:przedmioty(nazwa),
-      klasa:klasy(nazwa),
-      frekwencja_counts:lekcje_frekwencja_counts(
-        obecni, nieobecni, spoznieni, zwolnieni, usprawiedliwieni
-      )
-    `)
-    .eq('data_lekcji', new Date().toISOString().split('T')[0])
-    .order('numer', { ascending: true });
+ const { data: lekcje } = await supabase
+  .from('lekcje')
+  .select(`
+    id, data_lekcji, temat, numer,
+    przedmiot:przedmioty!lekcje_id_przedmiot_fkey(nazwa),
+    klasa:klasy!lekcje_id_klasa_fkey(nazwa),
+    frekwencja_counts:lekcje_frekwencja_counts(obecni, nieobecni, spoznieni, zwolnieni, usprawiedliwieni)
+  `)
+  .eq('data_lekcji', new Date().toISOString().split('T')[0])
+  .order('numer', { ascending: true });
+
 
   // 2) Ostatnie oceny (5 najnowszych)
   const { data: oceny } = await supabase
