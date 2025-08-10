@@ -1,27 +1,32 @@
 // app/dashboard/page.tsx
-import { createServerClient } from '@/lib/supabase-server';
-import { getCurrentUserWithRole } from '@/lib/supabase-server';
+import { createServerClient, getCurrentUserWithRole } from '@/lib/supabase-server';
 import { StatCard } from '@/components/Dashboard/StatCard';
 import Table from '@/components/Dashboard/Table';
+
+type LekcjaRow = {
+  data_lekcji: string;
+  temat: string | null;
+  przedmiot?: { nazwa: string } | { nazwa: string }[] | null;
+  frekwencja_counts?: { obecni: number | null } | null;
+};
 
 export default async function DashboardPage() {
   const supabase = createServerClient();
   const me = await getCurrentUserWithRole();
 
-  // 1) Dzisiejsze lekcje z licznikami frekwencji
- const { data: lekcje } = await supabase
-  .from('lekcje')
-  .select(`
-    id, data_lekcji, temat, numer,
-    przedmiot:przedmioty!lekcje_id_przedmiot_fkey(nazwa),
-    klasa:klasy!lekcje_id_klasa_fkey(nazwa),
-    frekwencja_counts:lekcje_frekwencja_counts(obecni, nieobecni, spoznieni, zwolnieni, usprawiedliwieni)
-  `)
-  .eq('data_lekcji', new Date().toISOString().split('T')[0])
-  .order('numer', { ascending: true });
+  // 1) Dzisiejsze lekcje
+  const { data: lekcje } = await supabase
+    .from('lekcje')
+    .select(`
+      id, data_lekcji, temat, numer,
+      przedmiot:przedmioty!lekcje_id_przedmiot_fkey(nazwa),
+      klasa:klasy!lekcje_id_klasa_fkey(nazwa),
+      frekwencja_counts:lekcje_frekwencja_counts(obecni, nieobecni, spoznieni, zwolnieni, usprawiedliwieni)
+    `)
+    .eq('data_lekcji', new Date().toISOString().split('T')[0])
+    .order('numer', { ascending: true });
 
-
-  // 2) Ostatnie oceny (5 najnowszych)
+  // 2) Ostatnie oceny
   const { data: oceny } = await supabase
     .from('oceny')
     .select(`
@@ -53,34 +58,32 @@ export default async function DashboardPage() {
         <div>
           <h2 className="font-semibold mb-2">Dzisiejsze lekcje</h2>
           <Table
-  rows={lekcje?.map(l => {
-    // obsługa przypadku: przedmiot to tablica lub obiekt
-    let przedmiotNazwa: string | null = null;
+            rows={(lekcje as LekcjaRow[] | undefined)?.map((l) => {
+              let przedmiotNazwa: string | null = null;
 
-    if (Array.isArray(l.przedmiot)) {
-      przedmiotNazwa = l.przedmiot[0]?.nazwa ?? null;
-    } else {
-      przedmiotNazwa = l.przedmiot?.nazwa ?? null;
-    }
+              if (Array.isArray(l.przedmiot)) {
+                przedmiotNazwa = l.przedmiot[0]?.nazwa ?? null;
+              } else {
+                przedmiotNazwa = l.przedmiot?.nazwa ?? null;
+              }
 
-    return {
-      title: `${przedmiotNazwa || '—'} — ${l.temat || 'Brak tematu'}`,
-      date: l.data_lekcji,
-      tag: `Obecni: ${l.frekwencja_counts?.obecni || 0}`
-    };
-  }) || []}
-/>
-
+              return {
+                title: `${przedmiotNazwa || '—'} — ${l.temat || 'Brak tematu'}`,
+                date: l.data_lekcji,
+                tag: `Obecni: ${l.frekwencja_counts?.obecni || 0}`,
+              };
+            }) || []}
+          />
         </div>
 
         {/* Ostatnie oceny */}
         <div>
           <h2 className="font-semibold mb-2">Ostatnie oceny</h2>
           <Table
-            rows={oceny?.map(o => ({
+            rows={oceny?.map((o) => ({
               title: `${o.uczen?.imie} ${o.uczen?.nazwisko} — ${o.ocena}`,
               date: o.data,
-              tag: o.przedmiot?.nazwa || ''
+              tag: o.przedmiot?.nazwa || '',
             })) || []}
           />
         </div>
