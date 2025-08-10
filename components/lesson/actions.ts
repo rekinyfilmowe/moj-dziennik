@@ -28,29 +28,25 @@ function srednia(nums: (number | null)[]) {
 
 // --------------- AKCJE ---------------
 
-export async function getClassesAction(): Promise<{ label: string; value: string }[]> {
+// lib/actions.ts
+export async function getClassesAction() {
   const s = createServerClient();
-
-  // Pobierz zarówno id jak i _id (cokolwiek istnieje) + nazwa
   const { data, error } = await s
     .from("klasy")
-    .select("id, _id, nazwa")
-    .order("nazwa", { ascending: true });
+    .select("id, nazwa")
+    .order("nazwa");
 
   if (error) {
-    // (opcjonalnie) rzuć błąd albo zwróć pustą listę
-    console.error("getClassesAction error:", error);
+    console.error("Błąd pobierania klas:", error);
     return [];
   }
 
-  return (data ?? [])
-    .map((k: any) => {
-      const key = k.id ?? k._id;       // <-- obsługa obu schematów
-      const name = k.nazwa ?? "";      // <-- dopasuj jeśli masz inną nazwę kolumny (np. "name")
-      return key ? { label: String(name), value: String(key) } : null;
-    })
-    .filter(Boolean) as { label: string; value: string }[];
+  return data.map((k) => ({
+    label: k.nazwa,
+    value: k.id,
+  }));
 }
+
 
 
 export async function getSubjectsForDateAction(params: { date: string; classId: string }): Promise<SubjectOption[]> {
