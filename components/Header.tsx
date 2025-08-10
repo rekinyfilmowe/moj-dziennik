@@ -1,7 +1,7 @@
 import Container from './Container'
 export default function Header() {
   return (
-    <header className="border-b border-neutral-200">
+    <header className="border-b border-neutral-200 bg-gray-100">
       <Container className="py-4 flex items-center justify-between">
         <div className="text-lg font-semibold">Dziennik</div>
         <nav className="hidden md:flex gap-6">
