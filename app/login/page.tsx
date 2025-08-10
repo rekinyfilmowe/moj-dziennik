@@ -13,7 +13,7 @@ export default function LoginPage() {
   // (opcjonalnie) jeśli user już zalogowany, wepchnij go na /app
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((ev) => {
-      if (ev === "SIGNED_IN") router.push("/app");
+      if (ev === "SIGNED_IN") router.push("/dashboard");
     });
     return () => sub.subscription.unsubscribe();
   }, [router, supabase]);
