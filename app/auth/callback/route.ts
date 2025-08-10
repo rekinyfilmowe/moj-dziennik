@@ -11,7 +11,7 @@ export async function GET(request: Request) {
     await supabase.auth.exchangeCodeForSession(code);
   }
 
-  // po zalogowaniu leć na /app
+  // po zalogowaniu leć na /dashboard
   return NextResponse.redirect(
     new URL("/dashboard", process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000")
   );
