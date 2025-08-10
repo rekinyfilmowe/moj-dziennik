@@ -13,6 +13,6 @@ export async function GET(request: Request) {
 
   // po zalogowaniu leć na /app
   return NextResponse.redirect(
-    new URL("/app", process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000")
+    new URL("/dashboard", process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000")
   );
 }
