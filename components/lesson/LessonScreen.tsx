@@ -79,7 +79,7 @@ export default function LessonScreen() {
       setSubjectId("");
       if (!date || !classId) return;
 
-      const subs = await getSubjectsForDateAction({ date: ymd(date), classId });
+      const subs = await getSubjectsForDateAction({ dateISO: ymd(date), classId });
       setSubjects(subs);
     })();
   }, [date, classId]);
@@ -89,11 +89,7 @@ export default function LessonScreen() {
     (async () => {
       if (!date || !classId || !planEntryId) return;
 
-      const check = await checkExistingLessonAction({
-        date: ymd(date),
-        classId,
-        planEntryId,
-      });
+      await checkExistingLessonAction({ planEntryId, dateISO: ymd(date) });
       setSubjectId(check.subjectId ?? "");
       setLessonId(check.lessonId);
       if (check.lessonTopic) setTopic(check.lessonTopic);
@@ -108,12 +104,7 @@ export default function LessonScreen() {
       return;
     }
     setSavingLesson(true);
-    const res = await saveLessonAction({
-      date: ymd(date),
-      classId,
-      planEntryId,
-      topic,
-    });
+   await saveLessonAction({ planEntryId, classId, dateISO: ymd(date), topic, teacherId });
     setSavingLesson(false);
     if (res.error) {
       setMsg(res.error);
