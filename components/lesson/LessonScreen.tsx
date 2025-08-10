@@ -43,8 +43,8 @@ export default function LessonScreen() {
   const [bgUrl, setBgUrl] = useState<string | null>(null);
   const [date, setDate] = useState<Date>(new Date());
   const [classId, setClassId] = useState<string>("");
-  const [planEntryId, setPlanEntryId] = useState<string>("");
-  const [subjectId, setSubjectId] = useState<string>(""); // uuid przedmiotu wynikający z wybranego wpisu planu
+  const [planEntryId, setPlanEntryId] = useState<string>(""); // to będzie s.value
+  const [subjectId, setSubjectId] = useState<string>(""); // uuid przedmiotu
   const [topic, setTopic] = useState("");
   const [classes, setClasses] = useState<{ label: string; value: string }[]>([]);
   const [subjects, setSubjects] = useState<SubjectOption[]>([]);
@@ -57,7 +57,7 @@ export default function LessonScreen() {
   const [savingAttendance, setSavingAttendance] = useState(false);
   const [msg, setMsg] = useState<string>("");
 
-  // tło (jak w Wix – z kolekcji "tlo")
+  // tło
   useEffect(() => {
     (async () => {
       try {
@@ -76,7 +76,7 @@ export default function LessonScreen() {
     })();
   }, []);
 
-  // za każdym razem gdy zmienia się data/klasa – ładujemy możliwe wpisy (przedmiot+nr)
+  // zmiana data/klasa -> ładuj wpisy
   useEffect(() => {
     (async () => {
       setSubjects([]);
@@ -95,20 +95,19 @@ export default function LessonScreen() {
     })();
   }, [date, classId]);
 
-  // po wyborze wpisu – ustaw subjectId i sprawdź, czy lekcja już istnieje
+  // po wyborze wpisu – ustaw subjectId i sprawdź, czy lekcja istnieje
   useEffect(() => {
     (async () => {
       setLessonId(null);
       if (!date || !classId || !planEntryId) return;
 
       // ustaw subjectId na podstawie bieżącej listy subjects
-      const chosen = subjects.find((s) => s.planEntryId === planEntryId);
-      setSubjectId(chosen?.subjectId ?? "");
+      const chosen = subjects.find((s) => s.value === planEntryId);
+      setSubjectId((chosen as any)?.subjectId ?? ""); // subjectId mamy z akcji
 
       // sprawdź, czy lekcja istnieje
       const res = await checkExistingLessonAction({ planEntryId, dateISO: ymd(date) });
       setLessonId(res.lessonId ?? null);
-      // temat i inne detale – jeśli chcesz prefill, można dodać akcję getLessonDetails(...)
     })();
   }, [date, classId, planEntryId, subjects]);
 
@@ -127,7 +126,6 @@ export default function LessonScreen() {
         classId,
         dateISO: ymd(date),
         topic,
-        // teacherId: opcjonalnie – dodaj, jeśli masz w UI
       });
       setSavingLesson(false);
 
@@ -139,16 +137,12 @@ export default function LessonScreen() {
       setLessonId(res.lessonId);
       setMsg("Zapisano lekcję!");
 
-      // załaduj uczniów + obecności + oceny (uwaga: jeśli subjectId to UUID,
-      // a w loadStudentsWithDataAction jest asNum(subjectId), oceny mogą się nie wczytać)
-      if (!subjectId) {
-        // spróbuj jeszcze raz wyciągnąć z wybranego wpisu
-        const chosen = subjects.find((s) => s.planEntryId === planEntryId);
-        if (chosen?.subjectId) setSubjectId(chosen.subjectId);
-      }
+      // załaduj uczniów + obecności + oceny
+      const chosen = subjects.find((s) => s.value === planEntryId);
+      const subjId = (chosen as any)?.subjectId ?? subjectId;
       const data = await loadStudentsWithDataAction({
         classId,
-        subjectId: subjectId || (subjects.find(s => s.planEntryId === planEntryId)?.subjectId ?? ""),
+        subjectId: subjId,
         lessonId: res.lessonId,
         semester: sem,
       });
@@ -209,7 +203,6 @@ export default function LessonScreen() {
 
   const filteredRows = useMemo(() => {
     if (!onlyCurrentSemester) return rows;
-    // w tym MVP oceny pokazujemy jako tekst scalony – filtrowanie dotyczy tekstu z semestru
     return rows;
   }, [rows, onlyCurrentSemester]);
 
@@ -253,14 +246,14 @@ export default function LessonScreen() {
             onChange={(e) => {
               const id = e.target.value;
               setPlanEntryId(id);
-              const chosen = subjects.find((s) => s.planEntryId === id);
-              setSubjectId(chosen?.subjectId ?? "");
+              const chosen = subjects.find((s) => s.value === id);
+              setSubjectId((chosen as any)?.subjectId ?? "");
             }}
           >
             <option value="">-- wybierz --</option>
             {subjects.map((s) => (
-              <option key={s.planEntryId} value={s.planEntryId}>
-                {s.lessonNo}. {s.subjectName}
+              <option key={s.value} value={s.value}>
+                {s.label}
               </option>
             ))}
           </select>
