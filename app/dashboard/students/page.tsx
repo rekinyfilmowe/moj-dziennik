@@ -1,4 +1,4 @@
-// app/app/students/page.tsx
+// app/dashboard/students/page.tsx
 import Link from "next/link";
 import { createServerClient, getCurrentUserWithRole } from "../../../lib/supabase-server";
 import { revalidatePath } from "next/cache";
@@ -18,14 +18,14 @@ export default async function StudentsPage() {
     "use server";
     const s = createServerClient();
     await s.from("students").delete().eq("id", id);
-    revalidatePath("/app/students");
+    revalidatePath("/dashboard/students");
   }
 
   return (
     <main className="p-6 max-w-2xl space-y-4">
       <header className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Uczniowie</h1>
-        <Link href="/app/students/new" className="border rounded px-3 py-2">+ Nowy</Link>
+        <Link href="/dashboard/students/new" className="border rounded px-3 py-2">+ Nowy</Link>
       </header>
 
       {error && <p className="text-red-600">{error.message}</p>}
@@ -43,7 +43,7 @@ export default async function StudentsPage() {
                 <span>{s.first_name} {s.last_name}</span>
                 {canEdit && (
                   <div className="flex items-center gap-2">
-                    <Link href={`/app/students/${s.id}/edit`} className="text-sm underline">Edytuj</Link>
+                    <Link href={`/dashboard/students/${s.id}/edit`} className="text-sm underline">Edytuj</Link>
                     <form action={async () => { "use server"; await onDelete(s.id); }}>
                       <button className="text-sm text-red-600 underline">Usuń</button>
                     </form>
