@@ -1,12 +1,11 @@
 // lib/supabase-server.ts
 import { cookies } from 'next/headers'
 import { createServerClient as createSupabaseServerClient } from '@supabase/ssr'
-import { Database } from './database.types'
 
 export function createServerClient() {
   const cookieStore = cookies()
 
-  return createSupabaseServerClient<Database>(
+  return createSupabaseServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
@@ -14,12 +13,9 @@ export function createServerClient() {
         get(name: string) {
           return cookieStore.get(name)?.value
         },
-        set() {
-          // SSR: nie ustawiamy ciastek po stronie serwera
-        },
-        remove() {
-          // SSR: nie usuwamy ciastek po stronie serwera
-        },
+        // Na serwerze (SSR) zazwyczaj nie ustawiamy/nie usuwamy ciastek — ale metody muszą istnieć
+        set() {},
+        remove() {},
       },
     }
   )
@@ -27,17 +23,14 @@ export function createServerClient() {
 
 export async function getCurrentUserWithRole() {
   const supabase = createServerClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('role')
+    .select('role, full_name')
     .eq('id', user.id)
     .single()
 
-  return { user, role: profile?.role || null }
+  return { user, role: profile?.role ?? 'uczen', full_name: profile?.full_name ?? null }
 }
