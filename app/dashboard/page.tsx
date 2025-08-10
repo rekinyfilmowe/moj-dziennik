@@ -19,7 +19,7 @@ export default async function AppHome() {
         </form>
       </header>
 
-      <Link href="/app/students" className="underline">Uczniowie</Link>
+      <Link href="/dashboard/students" className="underline">Uczniowie</Link>
     </main>
   );
 }
