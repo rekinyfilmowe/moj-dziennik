@@ -254,3 +254,49 @@ export default function LessonScreen() {
               onClick={handleSaveAttendance}
               className="rounded bg-lime-500 text-black px-4 py-2 font-semibold"
               disabled={savingAttendance}
+            >
+              {savingAttendance ? "Zapisuję..." : "Zapisz obecność"}
+            </button>
+          </div>
+
+          <ul className="divide-y">
+            {filteredRows.map((r, idx) =>
+              r.isHeader ? (
+                <li key="hdr" className="px-4 py-2 grid grid-cols-12 gap-2 bg-gray-50 text-sm font-medium">
+                  <div className="col-span-1">Lp.</div>
+                  <div className="col-span-3">Imię i nazwisko</div>
+                  <div className="col-span-3">Obecność</div>
+                  <div className="col-span-2">Okres (semestr) 1</div>
+                  <div className="col-span-2">Okres (semestr) 2</div>
+                  <div className="col-span-1 text-right">Ocena roczna</div>
+                </li>
+              ) : (
+                <li key={r.idUczen} className="px-4 py-3 grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-1">{idx}.</div>
+                  <div className="col-span-3">{r.imieNazwisko}</div>
+                  <div className="col-span-3">
+                    <select
+                      className="rounded border p-2 w-full"
+                      value={r.status}
+                      onChange={(e) => {
+                        const next = [...rows];
+                        const i = next.findIndex(x => x.idUczen === r.idUczen);
+                        next[i] = { ...next[i], status: e.target.value as AttendanceRow["status"] };
+                        setRows(next);
+                      }}
+                    >
+                      {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="col-span-2 text-sm" dangerouslySetInnerHTML={{ __html: r.ocenySem1Html }} />
+                  <div className="col-span-2 text-sm" dangerouslySetInnerHTML={{ __html: r.ocenySem2Html }} />
+                  <div className="col-span-1 text-right">{r.sredniaRoczna ?? "-"}</div>
+                </li>
+              )
+            )}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
