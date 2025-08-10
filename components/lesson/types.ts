@@ -1,5 +1,10 @@
 // components/lesson/types.ts
-export type SubjectOption = { value: string; label: string; subjectId?: string };
+export type SubjectOption = {
+  value: string;     // planEntryId
+  label: string;     // np. "1. Matematyka"
+  subjectId: string; // uuid przedmiotu
+  lessonNo: number;  // numer lekcji w planie
+};
 
 export type AttendanceRow = {
   isHeader: boolean;
