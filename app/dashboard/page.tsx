@@ -1,9 +1,10 @@
 // app/dashboard/page.tsx
 import React from "react";
 import { normalizeLekcje, type LekcjaRaw, type LekcjaRow } from "@/lib/normalizeLekcje";
+import { getDzisiejszeLekcje } from "@/lib/lekcje";
 
 // ------------------------
-// 1) Dynamiczny import Table z fallbackami (różne ścieżki i nazwy eksportów)
+// Dynamiczny import Table z fallbackami (działa niezależnie od ścieżki/nazwy)
 // ------------------------
 async function resolveTable(): Promise<React.ComponentType<{ rows: LekcjaRow[] }>> {
   const tryPaths = [
@@ -15,50 +16,34 @@ async function resolveTable(): Promise<React.ComponentType<{ rows: LekcjaRow[] }
 
   for (const p of tryPaths) {
     try {
-      // @ts-ignore – dynamiczna ścieżka, TS tego nie zrozumie, ale runtime tak
+      // @ts-ignore – dynamiczna ścieżka
       const mod = await import(p);
       const TableComp =
         (mod && (mod.default || (mod.Table as any))) as React.ComponentType<{ rows: LekcjaRow[] }>;
       if (TableComp) return TableComp;
     } catch {
-      // próbujemy kolejny wariant
+      // kolejny wariant
     }
   }
 
-  // Jeśli nic nie znaleziono, podrzucamy minimalny fallback, żeby build nie padł
+  // Minimalny fallback, żeby build nie padł, nawet jeśli nie ma komponentu Table
   return (({ rows }) => (
     <pre style={{ whiteSpace: "pre-wrap" }}>
-      {`[Brak komponentu Table – wrzuć go do components/table.tsx lub components/ui/table.tsx]
+      {`[Brak komponentu Table – dodaj go do components/table.tsx lub components/ui/table.tsx]
 Wiersze (podgląd):\n${JSON.stringify(rows, null, 2)}`}
     </pre>
   )) as React.ComponentType<{ rows: LekcjaRow[] }>;
 }
 
-// ------------------------
-// 2) Pobranie dzisiejszych lekcji – miękki import Twojej funkcji, fallback = []
-// ------------------------
-async function getDzisiejszeLekcje(): Promise<LekcjaRaw[] | null> {
-  try {
-    const mod = await import("@/lib/lekcje").catch(() => null);
-    if (mod?.getDzisiejszeLekcje) {
-      const data = await mod.getDzisiejszeLekcje();
-      return data as LekcjaRaw[] | null;
-    }
-  } catch {
-    // ignorujemy – polecimy z pustą listą
-  }
-  return [];
-}
-
-// Dane zmienne (Supabase itp.) – unikamy twardego cache w czasie builda
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  // rozwiąż komponent Table (raz, przed renderem)
   const Table = await resolveTable();
 
-  // pobierz surowe rekordy i znormalizuj do kształtu dla Table
-  const lekcjeRaw = await getDzisiejszeLekcje();
+  // 1) Pobierz surowe rekordy (teraz: stub z lib/lekcje.ts)
+  const lekcjeRaw: LekcjaRaw[] | null = await getDzisiejszeLekcje();
+
+  // 2) Znormalizuj do płaskich wierszy dla Table
   const rows: LekcjaRow[] = normalizeLekcje(lekcjeRaw);
 
   return (
