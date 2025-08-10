@@ -87,13 +87,14 @@ export async function getClassesAction() {
 }
 
 /** Wypełnia dropdown „Przedmiot” na podstawie klasy + daty */
+/** Wypełnia dropdown „Przedmiot” na podstawie klasy + daty */
 export async function getSubjectsForDateAction(params: GetSubjectsParams) {
   const supabase = createServerClient();
 
   const dateISO = toIsoDateOnly(params.dateISO);
   const dow = dow1to7(dateISO);
 
-  // 1) plan dla klasy (uuid, bez Number())
+  // 1) plan dla klasy
   const { data: plans, error: planErr } = await supabase
     .from("plan_lekcji")
     .select("id, id_klasa, data_od, data_do")
@@ -102,11 +103,11 @@ export async function getSubjectsForDateAction(params: GetSubjectsParams) {
     .gte("data_do", dateISO);
 
   if (planErr) throw planErr;
-  if (!plans || plans.length === 0) return [];
+  if (!plans?.length) return [];
 
   const plan = plans[0];
 
-  // 2) wpisy w danym dniu (id_plan = uuid, dzien_tygodnia = 1..7)
+  // 2) wpisy w danym dniu
   const { data: entries, error: entriesErr } = await supabase
     .from("plan_lekcji_wpisy")
     .select("id, id_przedmiot, numer_lekcji")
@@ -115,30 +116,32 @@ export async function getSubjectsForDateAction(params: GetSubjectsParams) {
     .order("numer_lekcji", { ascending: true });
 
   if (entriesErr) throw entriesErr;
-  if (!entries || entries.length === 0) return [];
+  if (!entries?.length) return [];
 
-  // 3) (opcjonalnie) dociągamy nazwy przedmiotów przez IN(uuid)
+  // 3) nazwy przedmiotów
   const subjectIds = [...new Set(entries.map((e) => e.id_przedmiot))];
   const { data: subjectsDict, error: subjErr } = await supabase
-    .from("przedmioty") // <- jeśli masz inną tabelę, podmień
+    .from("przedmioty")
     .select("id, nazwa")
     .in("id", subjectIds);
 
   if (subjErr) throw subjErr;
 
   const nameById = new Map<string, string>(
-    (subjectsDict ?? []).map((s: any) => [s.id as string, s.nazwa as string])
+    (subjectsDict ?? []).map((s: any) => [String(s.id), s.nazwa])
   );
 
+  // 4) budowa opcji
   const options: SubjectOption[] = entries.map((e: any) => ({
-    planEntryId: e.id,                 // uuid
-    subjectId: e.id_przedmiot,         // uuid
-    subjectName: nameById.get(e.id_przedmiot) ?? "(bez nazwy)",
+    value: String(e.id), // planEntryId w formie "value"
+    label: `${e.numer_lekcji}. ${nameById.get(String(e.id_przedmiot)) ?? "(bez nazwy)"}`,
+    subjectId: String(e.id_przedmiot),
     lessonNo: e.numer_lekcji,
   }));
 
   return options;
 }
+
 
 /** Sprawdza, czy lekcja już istnieje (po wpisie planu + dacie) */
 export async function checkExistingLessonAction(
