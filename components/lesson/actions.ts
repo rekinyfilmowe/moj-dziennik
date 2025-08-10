@@ -4,9 +4,46 @@
 import { createServerClient } from "@/lib/supabase-server";
 import type { AttendanceRow, SubjectOption } from "./types";
 
-// --------------- POMOCNICZE ---------------
-function toYMD(dateStr: string) { return dateStr; } // już dostajemy Y-M-D
+/* =======================
+   Typy dla akcji lekcji
+======================= */
+export type GetSubjectsParams = {
+  classId: string;   // uuid
+  dateISO: string;   // "YYYY-MM-DD"
+};
 
+export type CheckLessonParams = {
+  planEntryId: string; // uuid
+  dateISO: string;     // "YYYY-MM-DD"
+};
+
+export type SaveLessonParams = {
+  planEntryId: string;       // uuid (plan_lekcji_wpisy.id)
+  classId: string;           // uuid (klasy.id)
+  dateISO: string;           // "YYYY-MM-DD"
+  teacherId?: string | null; // opcjonalnie (uuid)
+  topic?: string | null;     // temat lekcji
+};
+
+/* =======================
+   POMOCNICZE
+======================= */
+
+function toIsoDateOnly(v: string | Date): string {
+  if (typeof v === "string") return v.slice(0, 10);
+  const y = v.getUTCFullYear();
+  const m = String(v.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(v.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function dow1to7(dateISO: string): number {
+  const dt = new Date(dateISO + "T00:00:00Z");
+  const js = dt.getUTCDay(); // 0..6, nd=0
+  return js === 0 ? 7 : js;  // 1..7 (pn..nd)
+}
+
+// Stare utils – zostawiam, bo używasz niżej w frekwencji/ocenach:
 function asNum(x: any) { return x == null ? null : Number(x); }
 
 function ocenaNaLiczbe(s?: string | number | null) {
@@ -26,7 +63,9 @@ function srednia(nums: (number | null)[]) {
   return Number((sum / vals.length).toFixed(2));
 }
 
-// --------------- AKCJE ---------------
+/* =======================
+   AKCJE
+======================= */
 
 // lib/actions.ts
 export async function getClassesAction() {
@@ -47,24 +86,20 @@ export async function getClassesAction() {
   }));
 }
 
-export async function getSubjectsForDateAction(params: {
-  classId: string;   // uuid jako string!
-  dateISO: string;   // "YYYY-MM-DD"
-}) {
-  const supabase = createClient();
+/** Wypełnia dropdown „Przedmiot” na podstawie klasy + daty */
+export async function getSubjectsForDateAction(params: GetSubjectsParams) {
+  const supabase = createServerClient();
 
-  // DOW: 1=pn ... 7=nd (taki masz w DB)
-  const dt = new Date(params.dateISO + "T00:00:00Z");
-  const jsDow = dt.getUTCDay();         // 0..6 (nd=0)
-  const dow = jsDow === 0 ? 7 : jsDow;  // 1..7
+  const dateISO = toIsoDateOnly(params.dateISO);
+  const dow = dow1to7(dateISO);
 
   // 1) plan dla klasy (uuid, bez Number())
   const { data: plans, error: planErr } = await supabase
     .from("plan_lekcji")
     .select("id, id_klasa, data_od, data_do")
     .eq("id_klasa", params.classId)
-    .lte("data_od", params.dateISO)
-    .gte("data_do", params.dateISO);
+    .lte("data_od", dateISO)
+    .gte("data_do", dateISO);
 
   if (planErr) throw planErr;
   if (!plans || plans.length === 0) return [];
@@ -83,92 +118,100 @@ export async function getSubjectsForDateAction(params: {
   if (!entries || entries.length === 0) return [];
 
   // 3) (opcjonalnie) dociągamy nazwy przedmiotów przez IN(uuid)
-  const subjectIds = [...new Set(entries.map(e => e.id_przedmiot))];
+  const subjectIds = [...new Set(entries.map((e) => e.id_przedmiot))];
   const { data: subjectsDict, error: subjErr } = await supabase
-    .from("przedmioty") // <- potwierdź nazwę tabeli z przedmiotami
+    .from("przedmioty") // <- jeśli masz inną tabelę, podmień
     .select("id, nazwa")
     .in("id", subjectIds);
 
   if (subjErr) throw subjErr;
 
-  const nameById = new Map(subjectsDict?.map(s => [s.id, s.nazwa]) ?? []);
+  const nameById = new Map<string, string>(
+    (subjectsDict ?? []).map((s: any) => [s.id as string, s.nazwa as string])
+  );
 
-  return entries.map(e => ({
+  const options: SubjectOption[] = entries.map((e: any) => ({
     planEntryId: e.id,                 // uuid
     subjectId: e.id_przedmiot,         // uuid
     subjectName: nameById.get(e.id_przedmiot) ?? "(bez nazwy)",
     lessonNo: e.numer_lekcji,
   }));
+
+  return options;
 }
 
-
-
+/** Sprawdza, czy lekcja już istnieje (po wpisie planu + dacie) */
 export async function checkExistingLessonAction(
   params: CheckLessonParams
 ): Promise<{ exists: boolean; lessonId?: string }> {
-  const supabase = createClient();
+  const supabase = createServerClient();
   const dateISO = toIsoDateOnly(params.dateISO);
 
   const { data, error } = await supabase
     .from("lekcje")
     .select("id")
-    .eq("idWpisPlanu", params.planEntryId) // uuid, bez Number()
-    .eq("data", dateISO)
+    .eq("id_wpis_planu", params.planEntryId) // uuid
+    .eq("data_lekcji", dateISO)
     .limit(1);
 
   if (error) throw error;
 
-  const row = data && data[0];
-  return { exists: !!row, lessonId: row?.id };
+  const row = data?.[0];
+  return { exists: !!row, lessonId: row?.id as string | undefined };
 }
 
-/** Zapisuje lekcję dla wybranego wpisu planu */
+/** Zapisuje lekcję na podstawie wpisu planu (bez duplikatów) */
 export async function saveLessonAction(
   params: SaveLessonParams
 ): Promise<{ ok: true; lessonId: string } | { ok: false; reason: string }> {
-  const supabase = createClient();
+  const supabase = createServerClient();
   const dateISO = toIsoDateOnly(params.dateISO);
 
-  // 0) Idempotencja – jeśli już istnieje, nie duplikujemy
-  const exists = await checkExistingLessonAction({
+  // 0) idempotencja
+  const already = await checkExistingLessonAction({
     planEntryId: params.planEntryId,
     dateISO,
   });
-  if (exists.exists && exists.lessonId) {
-    return { ok: true, lessonId: exists.lessonId };
+  if (already.exists && already.lessonId) {
+    return { ok: true, lessonId: already.lessonId };
   }
 
-  // 1) Pobierz id_przedmiot z wpisu planu (uuid)
-  const { data: entry, error: entryErr } = await supabase
+  // 1) pobierz z wpisu planu: id_przedmiot + numer_lekcji
+  const { data: entry, error: eErr } = await supabase
     .from("plan_lekcji_wpisy")
-    .select("id_przedmiot")
-    .eq("id", params.planEntryId) // uuid
+    .select("id_przedmiot, numer_lekcji")
+    .eq("id", params.planEntryId)
     .single();
 
-  if (entryErr) return { ok: false, reason: entryErr.message };
-  const subjectId: string = entry!.id_przedmiot;
+  if (eErr) return { ok: false, reason: eErr.message };
 
-  // 2) Insert do lekcje (wszystko jako uuid/stringi, bez Number())
-  const insertPayload: Record<string, any> = {
-    idWpisPlanu: params.planEntryId,
-    idKlasa: params.classId,
-    data: dateISO,
-    notatki: params.notes ?? null,
+  const subjectId = entry!.id_przedmiot as string; // uuid
+  const lessonNo = entry!.numer_lekcji as number;
+
+  // 2) insert do 'lekcje' — nazwy kolumn wg Twojego schematu
+  const payload: Record<string, any> = {
+    id_wpis_planu: params.planEntryId,
+    id_klasa: params.classId,
+    id_przedmiot: subjectId,
+    data_lekcji: dateISO,
+    numer: lessonNo,
+    temat: params.topic ?? null,
   };
-
-  // Jeśli masz kolumnę idPrzedmiot w lekcje — ustaw ją:
-  if (subjectId) insertPayload.idPrzedmiot = subjectId;
+  if (params.teacherId) payload.id_nauczyciel = params.teacherId;
 
   const { data: ins, error: insErr } = await supabase
     .from("lekcje")
-    .insert(insertPayload)
+    .insert(payload)
     .select("id")
     .single();
 
   if (insErr) return { ok: false, reason: insErr.message };
-
   return { ok: true, lessonId: ins!.id as string };
 }
+
+/* =======================
+   Dane do tabeli frekwencji (zostawiam Twoje schematy)
+======================= */
 
 export async function loadStudentsWithDataAction(params: {
   classId: string; subjectId: string; lessonId: string; semester: 1 | 2;
@@ -179,7 +222,7 @@ export async function loadStudentsWithDataAction(params: {
   const { data: students } = await s
     .from("uczniowie")
     .select("_id, imie, nazwisko")
-    .eq("idKlasa", asNum(params.classId))
+    .eq("idKlasa", asNum(params.classId)) // jeśli tu też przejdziesz na UUID – daj znać, podmienię
     .order("nazwisko", { ascending: true });
 
   // frekwencja
@@ -206,7 +249,7 @@ export async function loadStudentsWithDataAction(params: {
 
   const rows: AttendanceRow[] = [
     header,
-    ...(students ?? []).map((u: any, idx: number) => {
+    ...(students ?? []).map((u: any) => {
       const att = (attendance ?? []).find((a: any) => a.idUczen === u._id);
       const g = (grades ?? []).filter((x: any) => x.idUczen === u._id);
 
@@ -228,11 +271,12 @@ export async function loadStudentsWithDataAction(params: {
 
       const avg1 = srednia(g1.map((o) => ocenaNaLiczbe(o.ocena)));
       const avg2 = srednia(g2.map((o) => ocenaNaLiczbe(o.ocena)));
-      const annual = avg1 != null && avg2 != null ? Number(((avg1 + avg2) / 2).toFixed(2)) : avg1 ?? avg2 ?? null;
+      const annual =
+        avg1 != null && avg2 != null ? Number(((avg1 + avg2) / 2).toFixed(2)) : avg1 ?? avg2 ?? null;
 
       return {
         isHeader: false,
-        idUczen: String(u._id), // UI dalej pracuje na stringach
+        idUczen: String(u._id), // UI pracuje na stringach
         imieNazwisko: `${u.imie} ${u.nazwisko}`,
         status: (att?.status as any) ?? "Obecny",
         ocenySem1Html: toHtml(g1),
@@ -272,7 +316,7 @@ export async function saveAttendanceAction(params: { lessonId: string; rows: Att
     }
   }
 
-  // policz zestawienie
+  // policz zestawienie (zachowuję logikę wyłącznie do komunikatu)
   let obecni = 0, spoznieni = 0, nieobecni = 0, usprawiedliwieni = 0, zwolnieni = 0;
   for (const r of rows) {
     switch (r.status) {
@@ -284,10 +328,15 @@ export async function saveAttendanceAction(params: { lessonId: string; rows: Att
     }
   }
 
-  // update lekcji
-  await s.from("lekcje").update({
-    obecni, spoznieni, nieobecni, usprawiedliwieni, zwolnieni
-  }).eq("_id", asNum(params.lessonId));
+  // (opcjonalnie) update lekcji z agregatami – tylko jeśli masz takie kolumny;
+  // zostawiam wyłączone, żeby nie wysypać się na Twoim schemacie:
+  // try {
+  //   await s.from("lekcje").update({
+  //     obecni, spoznieni, nieobecni, usprawiedliwieni, zwolnieni
+  //   }).eq("id", params.lessonId); // lekcje.id = uuid
+  // } catch (_) {}
 
-  return { message: `✅ Zapisano frekwencję: ${obecni} obecnych, ${spoznieni} spóźnionych, ${nieobecni} nieobecnych.` };
+  return {
+    message: `✅ Zapisano frekwencję: ${obecni} obecnych, ${spoznieni} spóźnionych, ${nieobecni} nieobecnych.`,
+  };
 }
