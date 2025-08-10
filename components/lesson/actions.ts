@@ -43,19 +43,23 @@ export async function getClassesAction() {
 
   return data.map((k) => ({
     label: k.nazwa,
-    value: k.id,
+    value: String(k.id), // UI używa stringów
   }));
 }
 
-
-
 export async function getSubjectsForDateAction(params: { date: string; classId: string }): Promise<SubjectOption[]> {
   const s = createServerClient();
+
   // 1) znajdź plan dla klasy i daty
-  const { data: plans } = await s
+  const { data: plans, error: plansErr } = await s
     .from("planLekcji")
     .select("_id, od, do, idKlasa")
-    .eq("idKlasa", params.classId);
+    .eq("idKlasa", asNum(params.classId));
+
+  if (plansErr) {
+    console.error("Błąd pobierania planów:", plansErr);
+    return [];
+  }
 
   const date = new Date(params.date);
   const plan = (plans ?? []).find((p: any) => new Date(p.od) <= date && new Date(p.do) >= date);
@@ -65,14 +69,14 @@ export async function getSubjectsForDateAction(params: { date: string; classId: 
   const dow = (() => { const d = date.getDay(); return d === 0 ? 7 : d; })();
 
   // 3) pobierz wpisy z danego dnia
-  const { data: entries } = await s
+  const { data: entries, error: entriesErr } = await s
     .from("planLekcji_wpisy")
     .select("_id, idPlan, dzienTygodnia, numerLekcji, idPrzedmiot")
     .eq("idPlan", plan._id)
     .eq("dzienTygodnia", dow)
     .order("numerLekcji", { ascending: true });
 
-  if (!entries?.length) return [];
+  if (entriesErr || !entries?.length) return [];
 
   // 4) zmapuj do label/value (dociągamy nazwy przedmiotów)
   const ids = entries.map((e: any) => e.idPrzedmiot).filter(Boolean);
@@ -80,8 +84,8 @@ export async function getSubjectsForDateAction(params: { date: string; classId: 
 
   const byId = new Map((subjects ?? []).map((p: any) => [p._id, p.nazwa as string]));
   return entries.map((e: any) => ({
-    value: String(e._id),
-    subjectId: String(e.idPrzedmiot),
+    value: String(e._id),             // id wpisu planu -> string do UI
+    subjectId: String(e.idPrzedmiot), // id przedmiotu -> string do UI
     label: `${byId.get(e.idPrzedmiot) ?? "Lekcja"} – lekcja ${e.numerLekcji}`,
   }));
 }
@@ -90,7 +94,11 @@ export async function checkExistingLessonAction(params: { date: string; classId:
   const s = createServerClient();
 
   // 1) pobierz wpis planu (żeby znać idPrzedmiotu)
-  const { data: entry } = await s.from("planLekcji_wpisy").select("idPrzedmiot").eq("_id", params.planEntryId).single();
+  const { data: entry } = await s
+    .from("planLekcji_wpisy")
+    .select("idPrzedmiot")
+    .eq("_id", asNum(params.planEntryId))
+    .single();
 
   const subjectId = entry?.idPrzedmiot ? String(entry.idPrzedmiot) : null;
 
@@ -99,8 +107,8 @@ export async function checkExistingLessonAction(params: { date: string; classId:
     .from("lekcje")
     .select("_id, temat, obecni, spoznieni, nieobecni, usprawiedliwieni, zwolnieni")
     .eq("dataLekcji", toYMD(params.date))
-    .eq("idKlasa", params.classId)
-    .eq("idWpisPlanu", params.planEntryId)
+    .eq("idKlasa", asNum(params.classId))
+    .eq("idWpisPlanu", asNum(params.planEntryId))
     .limit(1);
 
   const lesson = lessons?.[0];
@@ -126,18 +134,20 @@ export async function saveLessonAction(params: {
   const { data: entry, error: e1 } = await s
     .from("planLekcji_wpisy")
     .select("idPrzedmiot")
-    .eq("_id", params.planEntryId)
+    .eq("_id", asNum(params.planEntryId))
     .single();
   if (e1) return { error: "❌ Nie udało się pobrać wpisu planu." };
-  const subjectId = String(entry!.idPrzedmiot);
+
+  const subjectIdNum = Number(entry!.idPrzedmiot);
+  const subjectIdStr = String(entry!.idPrzedmiot);
 
   // 2) sprawdź czy istnieje lekcja
   const { data: existing } = await s
     .from("lekcje")
     .select("_id, temat")
     .eq("dataLekcji", params.date)
-    .eq("idKlasa", params.classId)
-    .eq("idWpisPlanu", params.planEntryId)
+    .eq("idKlasa", asNum(params.classId))
+    .eq("idWpisPlanu", asNum(params.planEntryId))
     .limit(1);
 
   if (existing?.length) {
@@ -146,7 +156,7 @@ export async function saveLessonAction(params: {
     if (error) return { error: "❌ Błąd aktualizacji lekcji." };
     return {
       lessonId: String(existing[0]._id),
-      subjectId,
+      subjectId: subjectIdStr, // do UI zwracamy string
       message: "Zaktualizowano lekcję.",
     };
   }
@@ -156,17 +166,17 @@ export async function saveLessonAction(params: {
     .from("lekcje")
     .insert({
       dataLekcji: params.date,
-      idKlasa: params.classId,
-      idPrzedmiot: subjectId,
+      idKlasa: asNum(params.classId),
+      idPrzedmiot: subjectIdNum,
       temat: params.topic,
-      idWpisPlanu: params.planEntryId,
+      idWpisPlanu: asNum(params.planEntryId),
     })
     .select("_id")
     .single();
 
   if (error) return { error: "❌ Błąd zapisu lekcji." };
 
-  return { lessonId: String(inserted!._id), subjectId, message: "Zapisano lekcję!" };
+  return { lessonId: String(inserted!._id), subjectId: subjectIdStr, message: "Zapisano lekcję!" };
 }
 
 export async function loadStudentsWithDataAction(params: {
@@ -178,20 +188,20 @@ export async function loadStudentsWithDataAction(params: {
   const { data: students } = await s
     .from("uczniowie")
     .select("_id, imie, nazwisko")
-    .eq("idKlasa", params.classId)
+    .eq("idKlasa", asNum(params.classId))
     .order("nazwisko", { ascending: true });
 
   // frekwencja
   const { data: attendance } = await s
     .from("frekwencja")
     .select("_id, idUczen, status, uwagi")
-    .eq("idLekcja", params.lessonId);
+    .eq("idLekcja", asNum(params.lessonId));
 
   // oceny
   const { data: grades } = await s
     .from("oceny")
     .select("_id, idUczen, idPrzedmiot, semestr, ocena, typOceny, zaCo")
-    .eq("idPrzedmiot", params.subjectId);
+    .eq("idPrzedmiot", asNum(params.subjectId));
 
   const header: AttendanceRow = {
     isHeader: true,
@@ -205,7 +215,7 @@ export async function loadStudentsWithDataAction(params: {
 
   const rows: AttendanceRow[] = [
     header,
-    ...(students ?? []).map((u: any) => {
+    ...(students ?? []).map((u: any, idx: number) => {
       const att = (attendance ?? []).find((a: any) => a.idUczen === u._id);
       const g = (grades ?? []).filter((x: any) => x.idUczen === u._id);
 
@@ -231,7 +241,7 @@ export async function loadStudentsWithDataAction(params: {
 
       return {
         isHeader: false,
-        idUczen: String(u._id),
+        idUczen: String(u._id), // UI dalej pracuje na stringach
         imieNazwisko: `${u.imie} ${u.nazwisko}`,
         status: (att?.status as any) ?? "Obecny",
         ocenySem1Html: toHtml(g1),
@@ -253,15 +263,15 @@ export async function saveAttendanceAction(params: { lessonId: string; rows: Att
     const { data: exists } = await s
       .from("frekwencja")
       .select("_id")
-      .eq("idLekcja", params.lessonId)
-      .eq("idUczen", r.idUczen)
+      .eq("idLekcja", asNum(params.lessonId))
+      .eq("idUczen", asNum(r.idUczen))
       .limit(1);
 
     const payload = {
-      idLekcja: params.lessonId,
-      idUczen: r.idUczen,
+      idLekcja: asNum(params.lessonId),
+      idUczen: asNum(r.idUczen),
       status: r.status,
-      uwagi: r.uwagi ?? "",
+      uwagi: (r as any).uwagi ?? "",
     };
 
     if (exists?.length) {
@@ -286,7 +296,7 @@ export async function saveAttendanceAction(params: { lessonId: string; rows: Att
   // update lekcji
   await s.from("lekcje").update({
     obecni, spoznieni, nieobecni, usprawiedliwieni, zwolnieni
-  }).eq("_id", params.lessonId);
+  }).eq("_id", asNum(params.lessonId));
 
   return { message: `✅ Zapisano frekwencję: ${obecni} obecnych, ${spoznieni} spóźnionych, ${nieobecni} nieobecnych.` };
 }
