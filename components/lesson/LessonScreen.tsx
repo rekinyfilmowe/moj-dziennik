@@ -10,10 +10,14 @@ import {
   loadStudentsWithDataAction,
   saveAttendanceAction,
 } from "./actions";
-import type { AttendanceRow, SubjectOption, StudentRow } from "./types";
+import type { AttendanceRow, SubjectOption } from "./types";
 
 type Summary = {
-  obecni: number; spoznieni: number; nieobecni: number; usprawiedliwieni: number; zwolnieni: number;
+  obecni: number;
+  spoznieni: number;
+  nieobecni: number;
+  usprawiedliwieni: number;
+  zwolnieni: number;
 };
 
 const STATUS_OPTIONS = [
@@ -40,7 +44,7 @@ export default function LessonScreen() {
   const [date, setDate] = useState<Date>(new Date());
   const [classId, setClassId] = useState<string>("");
   const [planEntryId, setPlanEntryId] = useState<string>("");
-  const [subjectId, setSubjectId] = useState<string>("");
+  const [subjectId, setSubjectId] = useState<string>(""); // uuid przedmiotu wynikający z wybranego wpisu planu
   const [topic, setTopic] = useState("");
   const [classes, setClasses] = useState<{ label: string; value: string }[]>([]);
   const [subjects, setSubjects] = useState<SubjectOption[]>([]);
@@ -57,7 +61,8 @@ export default function LessonScreen() {
   useEffect(() => {
     (async () => {
       try {
-        const { url } = await (await fetch("/api/background")).json();
+        const resp = await fetch("/api/background");
+        const { url } = await resp.json();
         if (url) setBgUrl(url);
       } catch {}
     })();
@@ -77,50 +82,81 @@ export default function LessonScreen() {
       setSubjects([]);
       setPlanEntryId("");
       setSubjectId("");
+      setLessonId(null);
+      setMsg("");
+
       if (!date || !classId) return;
 
       const subs = await getSubjectsForDateAction({ dateISO: ymd(date), classId });
       setSubjects(subs);
+      if (subs.length === 0) {
+        setMsg("Brak przedmiotów w tym dniu dla wybranej klasy.");
+      }
     })();
   }, [date, classId]);
 
-  // po wyborze wpisu – sprawdź przedmiot i czy lekcja istnieje
+  // po wyborze wpisu – ustaw subjectId i sprawdź, czy lekcja już istnieje
   useEffect(() => {
     (async () => {
+      setLessonId(null);
       if (!date || !classId || !planEntryId) return;
 
-      await checkExistingLessonAction({ planEntryId, dateISO: ymd(date) });
-      setSubjectId(check.subjectId ?? "");
-      setLessonId(check.lessonId);
-      if (check.lessonTopic) setTopic(check.lessonTopic);
-      if (check.summaryText) setMsg(check.summaryText);
+      // ustaw subjectId na podstawie bieżącej listy subjects
+      const chosen = subjects.find((s) => s.planEntryId === planEntryId);
+      setSubjectId(chosen?.subjectId ?? "");
+
+      // sprawdź, czy lekcja istnieje
+      const res = await checkExistingLessonAction({ planEntryId, dateISO: ymd(date) });
+      setLessonId(res.lessonId ?? null);
+      // temat i inne detale – jeśli chcesz prefill, można dodać akcję getLessonDetails(...)
     })();
-  }, [date, classId, planEntryId]);
+  }, [date, classId, planEntryId, subjects]);
 
   // zapis/wczytanie lekcji
   async function handleSaveLesson() {
+    setMsg("");
     if (!date || !classId || !planEntryId || !topic) {
       setMsg("⚠️ Uzupełnij datę, klasę, wpis planu i temat.");
       return;
     }
-    setSavingLesson(true);
-   await saveLessonAction({ planEntryId, classId, dateISO: ymd(date), topic, teacherId });
-    setSavingLesson(false);
-    if (res.error) {
-      setMsg(res.error);
-      return;
+
+    try {
+      setSavingLesson(true);
+      const res = await saveLessonAction({
+        planEntryId,
+        classId,
+        dateISO: ymd(date),
+        topic,
+        // teacherId: opcjonalnie – dodaj, jeśli masz w UI
+      });
+      setSavingLesson(false);
+
+      if (!res.ok) {
+        setMsg(res.reason || "Nie udało się zapisać lekcji.");
+        return;
+      }
+
+      setLessonId(res.lessonId);
+      setMsg("Zapisano lekcję!");
+
+      // załaduj uczniów + obecności + oceny (uwaga: jeśli subjectId to UUID,
+      // a w loadStudentsWithDataAction jest asNum(subjectId), oceny mogą się nie wczytać)
+      if (!subjectId) {
+        // spróbuj jeszcze raz wyciągnąć z wybranego wpisu
+        const chosen = subjects.find((s) => s.planEntryId === planEntryId);
+        if (chosen?.subjectId) setSubjectId(chosen.subjectId);
+      }
+      const data = await loadStudentsWithDataAction({
+        classId,
+        subjectId: subjectId || (subjects.find(s => s.planEntryId === planEntryId)?.subjectId ?? ""),
+        lessonId: res.lessonId,
+        semester: sem,
+      });
+      setRows(data.rows);
+    } catch (e: any) {
+      setSavingLesson(false);
+      setMsg(e?.message ?? "Błąd zapisu lekcji.");
     }
-    setLessonId(res.lessonId!);
-    setSubjectId(res.subjectId!);
-    setMsg(res.message ?? "Zapisano lekcję!");
-    // załaduj uczniów + obecności + oceny
-    const data = await loadStudentsWithDataAction({
-      classId,
-      subjectId: res.subjectId!,
-      lessonId: res.lessonId!,
-      semester: sem,
-    });
-    setRows(data.rows);
   }
 
   async function handleSaveAttendance() {
@@ -128,27 +164,49 @@ export default function LessonScreen() {
       setMsg("⚠️ Najpierw zapisz/wczytaj lekcję.");
       return;
     }
-    setSavingAttendance(true);
-    const res = await saveAttendanceAction({ lessonId, rows });
-    setSavingAttendance(false);
-    setMsg(res.message);
+    try {
+      setSavingAttendance(true);
+      const res = await saveAttendanceAction({ lessonId, rows });
+      setSavingAttendance(false);
+      setMsg(res.message);
+    } catch (e: any) {
+      setSavingAttendance(false);
+      setMsg(e?.message ?? "Błąd zapisu frekwencji.");
+    }
   }
 
   function recomputeSummary(current: AttendanceRow[]): Summary {
-    const init: Summary = { obecni: 0, spoznieni: 0, nieobecni: 0, usprawiedliwieni: 0, zwolnieni: 0 };
+    const init: Summary = {
+      obecni: 0,
+      spoznieni: 0,
+      nieobecni: 0,
+      usprawiedliwieni: 0,
+      zwolnieni: 0,
+    };
     return current.reduce((acc, r) => {
       switch (r.status) {
-        case "Obecny": acc.obecni++; break;
-        case "Spóźniony": acc.spoznieni++; break;
-        case "Nieobecny": acc.nieobecni++; break;
-        case "Usprawiedliwiony": acc.usprawiedliwieni++; break;
-        case "Zwolniony": acc.zwolnieni++; break;
+        case "Obecny":
+          acc.obecni++;
+          break;
+        case "Spóźniony":
+          acc.spoznieni++;
+          break;
+        case "Nieobecny":
+          acc.nieobecni++;
+          break;
+        case "Usprawiedliwiony":
+          acc.usprawiedliwieni++;
+          break;
+        case "Zwolniony":
+          acc.zwolnieni++;
+          break;
       }
       return acc;
     }, init);
   }
 
-  const summary = useMemo(() => recomputeSummary(rows.filter(r => !r.isHeader)), [rows]);
+  const summary = useMemo(() => recomputeSummary(rows.filter((r) => !r.isHeader)), [rows]);
+
   const filteredRows = useMemo(() => {
     if (!onlyCurrentSemester) return rows;
     // w tym MVP oceny pokazujemy jako tekst scalony – filtrowanie dotyczy tekstu z semestru
@@ -171,7 +229,9 @@ export default function LessonScreen() {
           >
             <option value="">-- wybierz --</option>
             {classes.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
             ))}
           </select>
         </div>
@@ -188,13 +248,20 @@ export default function LessonScreen() {
           <label className="block text-sm mb-1">Przedmiot / lekcja (wpis planu)</label>
           <select
             className="w-full rounded border p-2"
-            disabled={!subjects.length}
+            disabled={!classId || !date || subjects.length === 0}
             value={planEntryId}
-            onChange={(e) => setPlanEntryId(e.target.value)}
+            onChange={(e) => {
+              const id = e.target.value;
+              setPlanEntryId(id);
+              const chosen = subjects.find((s) => s.planEntryId === id);
+              setSubjectId(chosen?.subjectId ?? "");
+            }}
           >
             <option value="">-- wybierz --</option>
             {subjects.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
+              <option key={s.planEntryId} value={s.planEntryId}>
+                {s.lessonNo}. {s.subjectName}
+              </option>
             ))}
           </select>
         </div>
@@ -210,14 +277,20 @@ export default function LessonScreen() {
 
         <div className="md:col-span-3 flex items-center justify-between">
           <div className="text-sm">
-            Obecni: {summary.obecni} | Spóźnieni: {summary.spoznieni} | Nieobecni: {summary.nieobecni} | Usprawiedliwieni: {summary.usprawiedliwieni} | Zwolnieni: {summary.zwolnieni}
+            Obecni: {summary.obecni} | Spóźnieni: {summary.spoznieni} | Nieobecni:{" "}
+            {summary.nieobecni} | Usprawiedliwieni: {summary.usprawiedliwieni} | Zwolnieni:{" "}
+            {summary.zwolnieni}
           </div>
           <button
             onClick={handleSaveLesson}
             className="rounded bg-lime-500 text-black px-4 py-2 font-semibold"
             disabled={savingLesson}
           >
-            {savingLesson ? "Zapisuję lekcję..." : (lessonId ? "Zapisz i wczytaj lekcję »" : "Rozpocznij lekcję")}
+            {savingLesson
+              ? "Zapisuję lekcję..."
+              : lessonId
+              ? "Zapisz i wczytaj lekcję »"
+              : "Rozpocznij lekcję"}
           </button>
         </div>
       </div>
@@ -253,7 +326,10 @@ export default function LessonScreen() {
           <ul className="divide-y">
             {filteredRows.map((r, idx) =>
               r.isHeader ? (
-                <li key="hdr" className="px-4 py-2 grid grid-cols-12 gap-2 bg-gray-50 text-sm font-medium">
+                <li
+                  key="hdr"
+                  className="px-4 py-2 grid grid-cols-12 gap-2 bg-gray-50 text-sm font-medium"
+                >
                   <div className="col-span-1">Lp.</div>
                   <div className="col-span-3">Imię i nazwisko</div>
                   <div className="col-span-3">Obecność</div>
@@ -262,7 +338,10 @@ export default function LessonScreen() {
                   <div className="col-span-1 text-right">Ocena roczna</div>
                 </li>
               ) : (
-                <li key={r.idUczen} className="px-4 py-3 grid grid-cols-12 gap-2 items-center">
+                <li
+                  key={r.idUczen}
+                  className="px-4 py-3 grid grid-cols-12 gap-2 items-center"
+                >
                   <div className="col-span-1">{idx}.</div>
                   <div className="col-span-3">{r.imieNazwisko}</div>
                   <div className="col-span-3">
@@ -271,16 +350,29 @@ export default function LessonScreen() {
                       value={r.status}
                       onChange={(e) => {
                         const next = [...rows];
-                        const i = next.findIndex(x => x.idUczen === r.idUczen);
-                        next[i] = { ...next[i], status: e.target.value as AttendanceRow["status"] };
+                        const i = next.findIndex((x) => x.idUczen === r.idUczen);
+                        next[i] = {
+                          ...next[i],
+                          status: e.target.value as AttendanceRow["status"],
+                        };
                         setRows(next);
                       }}
                     >
-                      {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      {STATUS_OPTIONS.map((o) => (
+                        <option key={o.value} value={o.value}>
+                          {o.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
-                  <div className="col-span-2 text-sm" dangerouslySetInnerHTML={{ __html: r.ocenySem1Html }} />
-                  <div className="col-span-2 text-sm" dangerouslySetInnerHTML={{ __html: r.ocenySem2Html }} />
+                  <div
+                    className="col-span-2 text-sm"
+                    dangerouslySetInnerHTML={{ __html: r.ocenySem1Html }}
+                  />
+                  <div
+                    className="col-span-2 text-sm"
+                    dangerouslySetInnerHTML={{ __html: r.ocenySem2Html }}
+                  />
                   <div className="col-span-1 text-right">{r.sredniaRoczna ?? "-"}</div>
                 </li>
               )
