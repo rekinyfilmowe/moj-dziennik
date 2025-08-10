@@ -7,6 +7,8 @@ export default async function StudentsPage() {
   const supabase = createServerClient();
   const me = await getCurrentUserWithRole(); // { user, role }
 
+  console.log("SSR user check:", me);
+
   const { data: students, error } = await supabase
     .from("students")
     .select("id, first_name, last_name, created_by")
