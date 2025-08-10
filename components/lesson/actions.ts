@@ -30,9 +30,28 @@ function srednia(nums: (number | null)[]) {
 
 export async function getClassesAction(): Promise<{ label: string; value: string }[]> {
   const s = createServerClient();
-  const { data } = await s.from("klasy").select("id:_id,nazwa").order("nazwa");
-  return (data ?? []).map((k: any) => ({ label: k.nazwa, value: String(k.id) }));
+
+  // Pobierz zarówno id jak i _id (cokolwiek istnieje) + nazwa
+  const { data, error } = await s
+    .from("klasy")
+    .select("id, _id, nazwa")
+    .order("nazwa", { ascending: true });
+
+  if (error) {
+    // (opcjonalnie) rzuć błąd albo zwróć pustą listę
+    console.error("getClassesAction error:", error);
+    return [];
+  }
+
+  return (data ?? [])
+    .map((k: any) => {
+      const key = k.id ?? k._id;       // <-- obsługa obu schematów
+      const name = k.nazwa ?? "";      // <-- dopasuj jeśli masz inną nazwę kolumny (np. "name")
+      return key ? { label: String(name), value: String(key) } : null;
+    })
+    .filter(Boolean) as { label: string; value: string }[];
 }
+
 
 export async function getSubjectsForDateAction(params: { date: string; classId: string }): Promise<SubjectOption[]> {
   const s = createServerClient();
