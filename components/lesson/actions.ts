@@ -221,24 +221,37 @@ export async function loadStudentsWithDataAction(params: {
 }) {
   const s = createServerClient();
 
-  // uczniowie
-  const { data: students } = await s
+  // --- Uczniowie: UUID + id_klasa ---
+  const { data: students, error: studentsErr } = await s
     .from("uczniowie")
-    .select("_id, imie, nazwisko")
-    .eq("idKlasa", asNum(params.classId)) // jeśli tu też przejdziesz na UUID – daj znać, podmienię
+    .select("id, imie, nazwisko")         // <-- id (uuid)
+    .eq("id_klasa", params.classId)       // <-- id_klasa (uuid)
     .order("nazwisko", { ascending: true });
 
-  // frekwencja
-  const { data: attendance } = await s
-    .from("frekwencja")
-    .select("_id, idUczen, status, uwagi")
-    .eq("idLekcja", asNum(params.lessonId));
+  if (studentsErr) throw studentsErr;
 
-  // oceny
-  const { data: grades } = await s
-    .from("oceny")
-    .select("_id, idUczen, idPrzedmiot, semestr, ocena, typOceny, zaCo")
-    .eq("idPrzedmiot", asNum(params.subjectId));
+  // --- Frekwencja / Oceny: jeśli masz inne nazwy kolumn, tu dostosuj ---
+  // Poniższe wersje zakładają snake_case i UUID-y.
+  // Jeśli Twoje tabele mają jeszcze stare nazwy (idLekcja, idUczen itd.),
+  // ten blok na razie może zwracać puste listy – uczniowie i tak się wyświetlą.
+
+  let attendance: any[] = [];
+  try {
+    const { data } = await s
+      .from("frekwencja")
+      .select("id, id_uczen, status, uwagi")
+      .eq("id_lekcja", params.lessonId);
+    attendance = data ?? [];
+  } catch {}
+
+  let grades: any[] = [];
+  try {
+    const { data } = await s
+      .from("oceny")
+      .select("id, id_uczen, id_przedmiot, semestr, ocena, typ_oceny, za_co")
+      .eq("id_przedmiot", params.subjectId);
+    grades = data ?? [];
+  } catch {}
 
   const header: AttendanceRow = {
     isHeader: true,
@@ -252,34 +265,31 @@ export async function loadStudentsWithDataAction(params: {
 
   const rows: AttendanceRow[] = [
     header,
-    ...(students ?? []).map((u: any) => {
-      const att = (attendance ?? []).find((a: any) => a.idUczen === u._id);
-      const g = (grades ?? []).filter((x: any) => x.idUczen === u._id);
+    ...(students ?? []).map((u: any, idx: number) => {
+      const att = attendance.find((a) => a.id_uczen === u.id);
+      const g = grades.filter((x) => x.id_uczen === u.id);
 
-      const g1 = g.filter((x: any) => String(x.semestr) === "1");
-      const g2 = g.filter((x: any) => String(x.semestr) === "2");
+      const g1 = g.filter((x) => String(x.semestr) === "1");
+      const g2 = g.filter((x) => String(x.semestr) === "2");
 
       const toHtml = (arr: any[]) =>
         arr.length
-          ? arr
-              .map((o) => {
-                const color = o.typOceny === "spr" ? "red" : "black";
-                const tip = o.zaCo ? `title="${o.zaCo}"` : "";
-                return `<span style="color:${color}; font-size:16px;" ${tip}>${o.ocena}${
-                  o.typOceny ? " (" + o.typOceny + ")" : ""
-                }</span>`;
-              })
-              .join(", ")
+          ? arr.map((o) => {
+              const color = o.typ_oceny === "spr" ? "red" : "black";
+              const tip = o.za_co ? `title="${o.za_co}"` : "";
+              return `<span style="color:${color}; font-size:16px;" ${tip}>${o.ocena}${
+                o.typ_oceny ? " (" + o.typ_oceny + ")" : ""
+              }</span>`;
+            }).join(", ")
           : '<span style="font-size:16px;">Brak ocen</span>';
 
       const avg1 = srednia(g1.map((o) => ocenaNaLiczbe(o.ocena)));
       const avg2 = srednia(g2.map((o) => ocenaNaLiczbe(o.ocena)));
-      const annual =
-        avg1 != null && avg2 != null ? Number(((avg1 + avg2) / 2).toFixed(2)) : avg1 ?? avg2 ?? null;
+      const annual = avg1 != null && avg2 != null ? Number(((avg1 + avg2) / 2).toFixed(2)) : avg1 ?? avg2 ?? null;
 
       return {
         isHeader: false,
-        idUczen: String(u._id), // UI pracuje na stringach
+        idUczen: String(u.id), // <-- uuid
         imieNazwisko: `${u.imie} ${u.nazwisko}`,
         status: (att?.status as any) ?? "Obecny",
         ocenySem1Html: toHtml(g1),
@@ -291,6 +301,7 @@ export async function loadStudentsWithDataAction(params: {
 
   return { rows };
 }
+
 
 export async function saveAttendanceAction(params: { lessonId: string; rows: AttendanceRow[] }) {
   const s = createServerClient();
