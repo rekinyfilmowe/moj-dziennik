@@ -11,6 +11,7 @@ import {
   saveAttendanceAction,
 } from "./actions";
 import type { AttendanceRow, SubjectOption } from "./types";
+import GradeModal from "../grades/GradeModal"; // <— import modala
 
 type Summary = {
   obecni: number;
@@ -43,7 +44,7 @@ export default function LessonScreen() {
   const [bgUrl, setBgUrl] = useState<string | null>(null);
   const [date, setDate] = useState<Date>(new Date());
   const [classId, setClassId] = useState<string>("");
-  const [planEntryId, setPlanEntryId] = useState<string>(""); // to będzie s.value
+  const [planEntryId, setPlanEntryId] = useState<string>(""); // s.value (uuid wpisu planu)
   const [subjectId, setSubjectId] = useState<string>(""); // uuid przedmiotu
   const [topic, setTopic] = useState("");
   const [classes, setClasses] = useState<{ label: string; value: string }[]>([]);
@@ -56,6 +57,10 @@ export default function LessonScreen() {
   const [savingLesson, setSavingLesson] = useState(false);
   const [savingAttendance, setSavingAttendance] = useState(false);
   const [msg, setMsg] = useState<string>("");
+
+  // modal ocen
+  const [gradesOpen, setGradesOpen] = useState(false);
+  const [pickedStudent, setPickedStudent] = useState<{ id: string; name: string } | null>(null);
 
   // tło
   useEffect(() => {
@@ -83,6 +88,7 @@ export default function LessonScreen() {
       setPlanEntryId("");
       setSubjectId("");
       setLessonId(null);
+      setRows([]);
       setMsg("");
 
       if (!date || !classId) return;
@@ -101,11 +107,9 @@ export default function LessonScreen() {
       setLessonId(null);
       if (!date || !classId || !planEntryId) return;
 
-      // ustaw subjectId na podstawie bieżącej listy subjects
       const chosen = subjects.find((s) => s.value === planEntryId);
-      setSubjectId((chosen as any)?.subjectId ?? ""); // subjectId mamy z akcji
+      setSubjectId((chosen as any)?.subjectId ?? "");
 
-      // sprawdź, czy lekcja istnieje
       const res = await checkExistingLessonAction({ planEntryId, dateISO: ymd(date) });
       setLessonId(res.lessonId ?? null);
     })();
@@ -137,20 +141,25 @@ export default function LessonScreen() {
       setLessonId(res.lessonId);
       setMsg("Zapisano lekcję!");
 
-      // załaduj uczniów + obecności + oceny
-      const chosen = subjects.find((s) => s.value === planEntryId);
-      const subjId = (chosen as any)?.subjectId ?? subjectId;
-      const data = await loadStudentsWithDataAction({
-        classId,
-        subjectId: subjId,
-        lessonId: res.lessonId,
-        semester: sem,
-      });
-      setRows(data.rows);
+      await refreshRows(res.lessonId);
     } catch (e: any) {
       setSavingLesson(false);
       setMsg(e?.message ?? "Błąd zapisu lekcji.");
     }
+  }
+
+  async function refreshRows(lessonIdToUse?: string) {
+    const chosen = subjects.find((s) => s.value === planEntryId);
+    const subjId = (chosen as any)?.subjectId ?? subjectId;
+    if (!classId || !subjId) return;
+
+    const data = await loadStudentsWithDataAction({
+      classId,
+      subjectId: subjId,
+      lessonId: lessonIdToUse ?? (lessonId ?? ""),
+      semester: sem,
+    });
+    setRows(data.rows);
   }
 
   async function handleSaveAttendance() {
@@ -179,21 +188,11 @@ export default function LessonScreen() {
     };
     return current.reduce((acc, r) => {
       switch (r.status) {
-        case "Obecny":
-          acc.obecni++;
-          break;
-        case "Spóźniony":
-          acc.spoznieni++;
-          break;
-        case "Nieobecny":
-          acc.nieobecni++;
-          break;
-        case "Usprawiedliwiony":
-          acc.usprawiedliwieni++;
-          break;
-        case "Zwolniony":
-          acc.zwolnieni++;
-          break;
+        case "Obecny": acc.obecni++; break;
+        case "Spóźniony": acc.spoznieni++; break;
+        case "Nieobecny": acc.nieobecni++; break;
+        case "Usprawiedliwiony": acc.usprawiedliwieni++; break;
+        case "Zwolniony": acc.zwolnieni++; break;
       }
       return acc;
     }, init);
@@ -222,9 +221,7 @@ export default function LessonScreen() {
           >
             <option value="">-- wybierz --</option>
             {classes.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
+              <option key={c.value} value={c.value}>{c.label}</option>
             ))}
           </select>
         </div>
@@ -246,15 +243,13 @@ export default function LessonScreen() {
             onChange={(e) => {
               const id = e.target.value;
               setPlanEntryId(id);
-              const chosen = subjects.find((s) => s.value === id);
-              setSubjectId((chosen as any)?.subjectId ?? "");
+              const chosen2 = subjects.find((s) => s.value === id);
+              setSubjectId((chosen2 as any)?.subjectId ?? "");
             }}
           >
             <option value="">-- wybierz --</option>
             {subjects.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
-              </option>
+              <option key={s.value} value={s.value}>{s.label}</option>
             ))}
           </select>
         </div>
@@ -270,20 +265,14 @@ export default function LessonScreen() {
 
         <div className="md:col-span-3 flex items-center justify-between">
           <div className="text-sm">
-            Obecni: {summary.obecni} | Spóźnieni: {summary.spoznieni} | Nieobecni:{" "}
-            {summary.nieobecni} | Usprawiedliwieni: {summary.usprawiedliwieni} | Zwolnieni:{" "}
-            {summary.zwolnieni}
+            Obecni: {summary.obecni} | Spóźnieni: {summary.spoznieni} | Nieobecni: {summary.nieobecni} | Usprawiedliwieni: {summary.usprawiedliwieni} | Zwolnieni: {summary.zwolnieni}
           </div>
           <button
             onClick={handleSaveLesson}
             className="rounded bg-lime-500 text-black px-4 py-2 font-semibold"
             disabled={savingLesson}
           >
-            {savingLesson
-              ? "Zapisuję lekcję..."
-              : lessonId
-              ? "Zapisz i wczytaj lekcję »"
-              : "Rozpocznij lekcję"}
+            {savingLesson ? "Zapisuję lekcję..." : lessonId ? "Zapisz i wczytaj lekcję »" : "Rozpocznij lekcję"}
           </button>
         </div>
       </div>
@@ -319,10 +308,7 @@ export default function LessonScreen() {
           <ul className="divide-y">
             {filteredRows.map((r, idx) =>
               r.isHeader ? (
-                <li
-                  key="hdr"
-                  className="px-4 py-2 grid grid-cols-12 gap-2 bg-gray-50 text-sm font-medium"
-                >
+                <li key="hdr" className="px-4 py-2 grid grid-cols-12 gap-2 bg-gray-50 text-sm font-medium">
                   <div className="col-span-1">Lp.</div>
                   <div className="col-span-3">Imię i nazwisko</div>
                   <div className="col-span-3">Obecność</div>
@@ -331,12 +317,20 @@ export default function LessonScreen() {
                   <div className="col-span-1 text-right">Ocena roczna</div>
                 </li>
               ) : (
-                <li
-                  key={r.idUczen}
-                  className="px-4 py-3 grid grid-cols-12 gap-2 items-center"
-                >
+                <li key={r.idUczen} className="px-4 py-3 grid grid-cols-12 gap-2 items-center">
                   <div className="col-span-1">{idx}.</div>
-                  <div className="col-span-3">{r.imieNazwisko}</div>
+                  <div className="col-span-3 flex items-center gap-2">
+                    {r.imieNazwisko}
+                    <button
+                      className="rounded border px-2 py-1 text-xs"
+                      onClick={() => {
+                        setPickedStudent({ id: r.idUczen, name: r.imieNazwisko });
+                        setGradesOpen(true);
+                      }}
+                    >
+                      Oceny
+                    </button>
+                  </div>
                   <div className="col-span-3">
                     <select
                       className="rounded border p-2 w-full"
@@ -344,34 +338,38 @@ export default function LessonScreen() {
                       onChange={(e) => {
                         const next = [...rows];
                         const i = next.findIndex((x) => x.idUczen === r.idUczen);
-                        next[i] = {
-                          ...next[i],
-                          status: e.target.value as AttendanceRow["status"],
-                        };
+                        next[i] = { ...next[i], status: e.target.value as AttendanceRow["status"] };
                         setRows(next);
                       }}
                     >
                       {STATUS_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
+                        <option key={o.value} value={o.value}>{o.label}</option>
                       ))}
                     </select>
                   </div>
-                  <div
-                    className="col-span-2 text-sm"
-                    dangerouslySetInnerHTML={{ __html: r.ocenySem1Html }}
-                  />
-                  <div
-                    className="col-span-2 text-sm"
-                    dangerouslySetInnerHTML={{ __html: r.ocenySem2Html }}
-                  />
+                  <div className="col-span-2 text-sm" dangerouslySetInnerHTML={{ __html: r.ocenySem1Html }} />
+                  <div className="col-span-2 text-sm" dangerouslySetInnerHTML={{ __html: r.ocenySem2Html }} />
                   <div className="col-span-1 text-right">{r.sredniaRoczna ?? "-"}</div>
                 </li>
               )
             )}
           </ul>
         </div>
+      )}
+
+      {/* Modal ocen */}
+      {gradesOpen && pickedStudent && (
+        <GradeModal
+          open={gradesOpen}
+          onClose={async (refresh) => {
+            setGradesOpen(false);
+            if (refresh && lessonId) await refreshRows();
+          }}
+          studentId={pickedStudent.id}
+          studentName={pickedStudent.name}
+          subjectId={subjectId}
+          semester={sem}
+        />
       )}
     </div>
   );
