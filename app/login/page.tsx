@@ -32,7 +32,8 @@ const siteUrl = raw.replace(/\/+$/, "");
           // <-- kluczowe: przełącz z magic_link na klasyczne logowanie
           view="sign_in"
           showLinks={true}   // pokaże link do "Zarejestruj się" i "Reset hasła"
-          redirectTo={`${siteUrl}/auth/callback`} // potrzebne m.in. dla Google/resetu
+          redirectTo={`${siteUrl}/auth/callback`}
+
           localization={{
             variables: {
               sign_in: {
