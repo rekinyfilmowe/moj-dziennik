@@ -24,6 +24,6 @@ export const metadata = {
   title: 'Frajdo',
   description: 'Twój dziennik online',
   icons: {
-    icon: '/favicon.ico',
+    icon: '/frajdo.ico',
   },
 }
