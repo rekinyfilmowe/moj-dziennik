@@ -19,3 +19,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   )
 }
+
+export const metadata = {
+  title: 'Frajdo',
+  description: 'Twój dziennik online',
+  icons: {
+    icon: '/favicon.ico',
+  },
+}
