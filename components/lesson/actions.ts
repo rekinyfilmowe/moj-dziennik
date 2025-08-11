@@ -354,3 +354,117 @@ export async function saveAttendanceAction(params: { lessonId: string; rows: Att
     message: `✅ Zapisano frekwencję: ${obecni} obecnych, ${spoznieni} spóźnionych, ${nieobecni} nieobecnych.`,
   };
 }
+
+// ==== OCENY: typy ====
+export type GradeRow = {
+  id: string;
+  ocena: string | null;
+  typ_oceny: string | null; // spr | kart | odp | PD | inne
+  za_co: string | null;
+  data: string;             // YYYY-MM-DD
+  poprawa_ocena: string | null;
+};
+
+export type ListGradesParams = {
+  studentId: string;   // uuid
+  subjectId: string;   // uuid
+  semester: 1 | 2;
+};
+
+export type UpsertGradeParams =
+  | {
+      mode: "add";
+      studentId: string;
+      subjectId: string;
+      semester: 1 | 2;
+      ocena: string;
+      typ_oceny: string;
+      za_co?: string | null;
+      dateISO?: string; // domyślnie dzisiaj
+    }
+  | {
+      mode: "edit";
+      gradeId: string;
+      ocena: string;
+      typ_oceny: string;
+      za_co?: string | null;
+    }
+  | {
+      mode: "improve";
+      gradeId: string;
+      poprawa_ocena: string;
+    };
+
+export async function getSubjectNameAction(subjectId: string) {
+  const s = createServerClient();
+  const { data, error } = await s
+    .from("przedmioty")
+    .select("nazwa")
+    .eq("id", subjectId)
+    .single();
+  if (error) return "(przedmiot)";
+  return data?.nazwa ?? "(przedmiot)";
+}
+
+export async function listGradesAction(params: ListGradesParams) {
+  const s = createServerClient();
+  // jeśli masz camelCase (idUczen…), podmień tu i w insert/update ↓↓↓
+  const { data, error } = await s
+    .from("oceny")
+    .select("id, ocena, typ_oceny, za_co, data, poprawa_ocena")
+    .eq("id_uczen", params.studentId)
+    .eq("id_przedmiot", params.subjectId)
+    .eq("semestr", params.semester)
+    .order("data", { ascending: true });
+
+  if (error) throw error;
+  return (data ?? []) as GradeRow[];
+}
+
+export async function upsertGradeAction(params: UpsertGradeParams) {
+  const s = createServerClient();
+
+  if (params.mode === "add") {
+    const payload = {
+      id_uczen: params.studentId,           // <-- podmień na idUczen jeśli masz camelCase
+      id_przedmiot: params.subjectId,       // <-- idPrzedmiot
+      ocena: params.ocena,
+      typ_oceny: params.typ_oceny,          // <-- typOceny
+      za_co: params.za_co ?? null,          // <-- zaCo
+      data: params.dateISO ?? new Date().toISOString().slice(0, 10),
+      semestr: params.semester,
+      poprawa_ocena: null,                  // <-- poprawaOcena
+    };
+    const { error } = await s.from("oceny").insert(payload);
+    if (error) throw error;
+    return { ok: true as const };
+  }
+
+  if (params.mode === "edit") {
+    const { error } = await s
+      .from("oceny")
+      .update({
+        ocena: params.ocena,
+        typ_oceny: params.typ_oceny,
+        za_co: params.za_co ?? null,
+      })
+      .eq("id", params.gradeId);
+    if (error) throw error;
+    return { ok: true as const };
+  }
+
+  // improve
+  const { error } = await s
+    .from("oceny")
+    .update({ poprawa_ocena: params.poprawa_ocena })
+    .eq("id", params.gradeId);
+  if (error) throw error;
+  return { ok: true as const };
+}
+
+export async function deleteGradeAction(gradeId: string) {
+  const s = createServerClient();
+  const { error } = await s.from("oceny").delete().eq("id", gradeId);
+  if (error) throw error;
+  return { ok: true as const };
+}
