@@ -1,39 +1,30 @@
-'use client';
-
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
-import { useRouter } from 'next/navigation';
-
 export default function TopBar() {
-  const supabase = createClientComponentClient();
-  const router = useRouter();
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut();
-    router.push('/login'); // przekierowanie na stronę logowania
-  };
-
   return (
-    <header className="h-14 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60 sticky top-0 z-30">
-      <div className="h-full px-4 flex items-center gap-3">
+    <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2">
         <input
-          aria-label="Szukaj"
-          placeholder="Szukaj..."
-          className="w-full max-w-md px-3 py-2 rounded-md border bg-background"
+          type="search"
+          placeholder="Szukaj…"
+          className="w-64 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm
+                     placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-200"
         />
-        <button className="px-3 py-2 rounded-md border">Nowa notatka</button>
-        <button className="px-3 py-2 rounded-md border" aria-label="Ustawienia">
-          ⚙️
-        </button>
-        <div className="size-8 rounded-full bg-muted border" aria-hidden />
-
-        {/* Przycisk wylogowania */}
-        <button
-          onClick={handleSignOut}
-          className="px-3 py-2 rounded-md border bg-red-500 text-white hover:bg-red-600"
-        >
-          Wyloguj
-        </button>
       </div>
-    </header>
-  );
+
+      <div className="flex items-center gap-3">
+        <button
+          className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm
+                     hover:bg-slate-50"
+        >
+          Import
+        </button>
+        <button
+          className="inline-flex items-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-white
+                     shadow-sm hover:bg-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-200"
+        >
+          Nowy wpis
+        </button>
+        <div className="h-8 w-8 rounded-full bg-emerald-200 ring-1 ring-emerald-300" />
+      </div>
+    </div>
+  )
 }
