@@ -1,40 +1,24 @@
-/** @type {import('tailwindcss').Config} */
+// tailwind.config.js
 module.exports = {
-  darkMode: 'class', // pozwala przełączać motyw przez klasę .dark na <html>
-  content: [
-    './app/**/*.{js,ts,jsx,tsx,mdx}',
-    './components/**/*.{js,ts,jsx,tsx,mdx}',
-    './pages/**/*.{js,ts,jsx,tsx,mdx}',
-  ],
+  content: ['./app/**/*.{ts,tsx}', './components/**/*.{ts,tsx}', './pages/**/*.{ts,tsx}'],
   theme: {
-    container: { center: true, padding: '1rem' },
+    container: { center: true, padding: '1rem', screens: { lg: '1024px', xl: '1200px', '2xl': '1320px' } },
     extend: {
       colors: {
-        brand: {
-          50:  '#eef6ff',
-          100: '#dbeafe',
-          200: '#bfdbfe',
-          300: '#93c5fd',
-          400: '#60a5fa',
-          500: '#3b82f6', // primary
-          600: '#2563eb',
-          700: '#1d4ed8',
-          800: '#1e40af',
-          900: '#1e3a8a',
-        },
-        // neutral oparty o Tailwind neutral/stone – można nadpisać jeśli chcesz
+        // Pastelowy zielony vibe
+        primary: { DEFAULT: '#22C55E', 600: '#16A34A', 700: '#15803D' }, // emerald
+        mint:    { DEFAULT: '#A7F3D0' },   // akcenty, tła chipów
+        lime:    { DEFAULT: '#D9F99D' },   // delikatne highlighty
+        ink:     '#0F172A',                // tekst nagłówków (slate-900)
+        text:    '#334155',                // treści (slate-700)
+        // delikatne, “make’owe” tła
+        paper:   '#F7FBF8',                // kolor strony
+        card:    '#FFFFFF',                // karty/sekcje
+        border:  '#E5E7EB',                // obramowania
       },
-      fontFamily: {
-        sans: ['var(--font-inter)', 'system-ui', 'sans-serif'],
-      },
-      borderRadius: {
-        sm: '6px',
-        DEFAULT: '12px',
-        lg: '16px',
-        xl: '20px',
-      },
+      borderRadius: { xl: '1rem', '2xl': '1.25rem' },
       boxShadow: {
-        card: '0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.08)',
+        soft: '0 10px 30px rgba(22,163,74,0.08)',   // zielonkawy cień
       },
     },
   },
