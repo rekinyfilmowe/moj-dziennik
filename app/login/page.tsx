@@ -9,7 +9,8 @@ import { ThemeSupa } from "@supabase/auth-ui-shared";
 export default function LoginPage() {
   const router = useRouter();
   const supabase = createClientComponentClient();
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  const raw = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+const siteUrl = raw.replace(/\/+$/, "");
 
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((ev) => {
